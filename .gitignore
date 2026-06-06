@@ -35,3 +35,5 @@ web/coverage/
 # pwnproxy
 *.req
 *.resp
+*.req.orig
+*.resp.orig

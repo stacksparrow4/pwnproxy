@@ -46,11 +46,16 @@ def map(km: Keymap) -> None:
 
     km.add(
         "I",
-        "set intercept_active toggle",
+        "rawsave.intercept.response.toggle",
         ["global"],
-        "Toggle whether the filtering via the intercept option is enabled",
+        "Toggle interactive response intercept (edit in Neovim)",
     )
-    km.add("i", "console.command.set intercept", ["global"], "Set intercept")
+    km.add(
+        "i",
+        "rawsave.intercept.toggle",
+        ["global"],
+        "Toggle interactive request intercept (edit in Neovim)",
+    )
     km.add("W", "console.command.set save_stream_file", ["global"], "Stream to file")
     km.add(
         "A",

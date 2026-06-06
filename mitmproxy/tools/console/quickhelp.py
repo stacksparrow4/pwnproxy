@@ -145,7 +145,7 @@ def make(
     bottom_items |= {
         "Events": "View event log",
         "Options": "View options",
-        "Intercept": "Set intercept",
+        "Intercept": "Toggle interactive request intercept (edit in Neovim)",
         "Filter": "Set view filter",
     }
     if focused_flow:

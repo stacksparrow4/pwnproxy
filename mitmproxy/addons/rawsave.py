@@ -37,6 +37,10 @@ class RawSave:
         # ids of flows we restored on startup, so we don't immediately
         # re-save them when load_flow replays their lifecycle events.
         self.restored_ids: set[str] = set()
+        # Burp-style interactive intercept: when enabled, each request (or
+        # response) is opened in Neovim for editing before it is forwarded.
+        self.intercept_request: bool = False
+        self.intercept_response: bool = False
         # Start after any pre-existing N.req/N.resp files so we never clobber
         # data from a previous run.
         self.counter = self._highest_existing_number()
@@ -181,9 +185,10 @@ class RawSave:
             fields.append((key.strip(), value.strip()))
         return http.Headers(fields)
 
-    def _build_flow(self, req_bytes: bytes, resp_bytes: bytes | None) -> http.HTTPFlow:
+    def _parse_request_file(self, req_bytes: bytes) -> tuple[http.Request, str | None]:
+        """Parse a saved ``.req`` file into a Request and its SNI."""
         # A valid request file has a leading ``---``-delimited metadata block;
-        # if it's missing this unpack raises ValueError, which the caller skips.
+        # if it's missing this unpack raises ValueError, which callers handle.
         _, meta_block, rest = req_bytes.split(b"---\n", 2)
 
         meta: dict[str, str] = {}
@@ -232,29 +237,36 @@ class RawSave:
             timestamp_start=now,
             timestamp_end=now,
         )
+        return request, sni
 
+    def _parse_response_file(self, resp_bytes: bytes) -> http.Response:
+        """Parse a saved ``.resp`` file into a Response."""
+        head_lines, body = self._parse_head_and_body(resp_bytes)
+        status_line = head_lines[0].split(b" ")
+        now = time.time()
+        return http.Response(
+            http_version=status_line[0],
+            status_code=int(status_line[1]),
+            reason=b" ".join(status_line[2:]),
+            headers=self._parse_headers(head_lines[1:]),
+            content=body,
+            trailers=None,
+            timestamp_start=now,
+            timestamp_end=now,
+        )
+
+    def _build_flow(self, req_bytes: bytes, resp_bytes: bytes | None) -> http.HTTPFlow:
+        request, sni = self._parse_request_file(req_bytes)
+        now = time.time()
         client = connection.Client(
             peername=("0.0.0.0", 0), sockname=("0.0.0.0", 0), timestamp_start=now
         )
-        server = connection.Server(address=(host, port))
+        server = connection.Server(address=(request.host, request.port))
         server.sni = sni
         flow = http.HTTPFlow(client, server)
         flow.request = request
-
         if resp_bytes is not None:
-            resp_head_lines, resp_body = self._parse_head_and_body(resp_bytes)
-            status_line = resp_head_lines[0].split(b" ")
-            flow.response = http.Response(
-                http_version=status_line[0],
-                status_code=int(status_line[1]),
-                reason=b" ".join(status_line[2:]),
-                headers=self._parse_headers(resp_head_lines[1:]),
-                content=resp_body,
-                trailers=None,
-                timestamp_start=now,
-                timestamp_end=now,
-            )
-
+            flow.response = self._parse_response_file(resp_bytes)
         return flow
 
     def _restored_flows(self) -> list[http.HTTPFlow]:
@@ -320,6 +332,74 @@ class RawSave:
             return None
         return path
 
+    # Burp-style interactive intercept
+
+    @command.command("rawsave.intercept.toggle")
+    def intercept_toggle(self) -> None:
+        """Toggle interactive request intercept (edit each request in Neovim)."""
+        self.intercept_request = not self.intercept_request
+        state = "on" if self.intercept_request else "off"
+        logging.log(ALERT, f"Request intercept: {state}")
+
+    @command.command("rawsave.intercept.response.toggle")
+    def intercept_response_toggle(self) -> None:
+        """Toggle interactive response intercept (edit each response in Neovim)."""
+        self.intercept_response = not self.intercept_response
+        state = "on" if self.intercept_response else "off"
+        logging.log(ALERT, f"Response intercept: {state}")
+
+    def _edit_in_neovim(self, path: Path) -> bytes | None:
+        """
+        Open ``path`` in Neovim and return the edited bytes. If the content was
+        changed, the original is preserved as ``<path>.orig``; an unmodified
+        file leaves no ``.orig`` behind. Returns None if editing is unavailable
+        or fails.
+        """
+        editor = getattr(ctx.master, "spawn_editor_file", None)
+        if editor is None:
+            logger.warning("Interactive intercept requires the console interface.")
+            return None
+        try:
+            original = path.read_bytes()
+            editor(str(path))
+            edited = path.read_bytes()
+            if edited != original:
+                path.with_name(path.name + ".orig").write_bytes(original)
+            return edited
+        except OSError as e:
+            logger.error(f"Error while editing {path}: {e}")
+            return None
+
+    def _intercept_request(self, flow: http.HTTPFlow) -> None:
+        path = self.req_path(flow)
+        if path is None:
+            return
+        edited = self._edit_in_neovim(path)
+        if edited is None:
+            return
+        try:
+            request, _ = self._parse_request_file(edited)
+        except (ValueError, IndexError) as e:
+            logger.error(f"Could not parse edited request: {e}")
+            return
+        flow.request = request
+
+    def _intercept_response(self, flow: http.HTTPFlow) -> None:
+        n = self.flow_numbers.get(flow.id)
+        if n is None:
+            return
+        path = self.directory / self._name(n, "resp")
+        if not path.exists():
+            return
+        edited = self._edit_in_neovim(path)
+        if edited is None:
+            return
+        try:
+            flow.response = self._parse_response_file(edited)
+        except (ValueError, IndexError) as e:
+            logger.error(f"Could not parse edited response: {e}")
+            return
+
     async def restore(self) -> None:
         for flow in self._restored_flows():
             await ctx.master.load_flow(flow)
@@ -335,8 +415,12 @@ class RawSave:
         if flow.id in self.restored_ids:
             return
         self.save_request(flow)
+        if self.intercept_request:
+            self._intercept_request(flow)
 
     def response(self, flow: http.HTTPFlow) -> None:
         if flow.id in self.restored_ids:
             return
         self.save_response(flow)
+        if self.intercept_response:
+            self._intercept_response(flow)

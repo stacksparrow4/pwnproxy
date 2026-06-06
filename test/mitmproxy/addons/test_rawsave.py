@@ -464,3 +464,179 @@ def test_replay_copy_error_logged(tmp_path, monkeypatch, caplog):
         (tmp_path / "replay").write_bytes(b"")
         ra.replay([f])
     assert "Error while copying" in caplog.text
+
+
+def test_intercept_toggle(caplog):
+    import logging as _logging
+    ra = rawsave.RawSave()
+    with taddons.context(ra), caplog.at_level(_logging.INFO):
+        assert ra.intercept_request is False
+        ra.intercept_toggle()
+        assert ra.intercept_request is True
+        assert "Request intercept: on" in caplog.text
+        ra.intercept_toggle()
+        assert ra.intercept_request is False
+
+        ra.intercept_response_toggle()
+        assert ra.intercept_response is True
+        assert "Response intercept: on" in caplog.text
+        ra.intercept_response_toggle()
+        assert ra.intercept_response is False
+
+
+def _fake_editor(new_content):
+    """Return a spawn_editor_file replacement that overwrites the file."""
+    def editor(path):
+        Path(path).write_bytes(new_content)
+    return editor
+
+
+def test_intercept_request_edits_flow(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        f.request.method = "GET"
+        f.request.path = "/"
+        f.request.headers["Host"] = "example.com"
+
+        edited = (
+            b"---\nprotocol: http\n---\n"
+            b"POST /edited HTTP/1.1\nHost: example.com\n\nhello"
+        )
+        tctx.master.spawn_editor_file = _fake_editor(edited)
+
+        ra.intercept_toggle()
+        ra.request(f)
+
+    # original saved alongside the edited version
+    assert (history / "000001.req.orig").exists()
+    assert (history / "000001.req").read_bytes() == edited
+    # the live flow now carries the edited request, which will be sent as normal
+    assert f.request.method == "POST"
+    assert f.request.path == "/edited"
+    assert f.request.content == b"hello"
+
+
+def test_intercept_response_edits_flow(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow(resp=True)
+
+        edited = b"HTTP/1.1 404 Not Found\ncontent-length: 3\n\nbye"
+        tctx.master.spawn_editor_file = _fake_editor(edited)
+
+        ra.request(f)
+        ra.intercept_response_toggle()
+        ra.response(f)
+
+    assert (history / "000001.resp.orig").exists()
+    assert (history / "000001.resp").read_bytes() == edited
+    assert f.response.status_code == 404
+    assert f.response.content == b"bye"
+
+
+def test_intercept_without_console_warns(tmp_path, caplog):
+    ra = rawsave.RawSave(directory=str(tmp_path / "history"))
+    with taddons.context(ra) as tctx:
+        # RecordingMaster has no spawn_editor_file
+        assert not hasattr(tctx.master, "spawn_editor_file")
+        f = tflow.tflow()
+        ra.request(f)
+        ra.intercept_toggle()
+        ra.request(f)
+    assert "requires the console interface" in caplog.text
+
+
+def test_intercept_request_no_file_noop(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path / "history"))
+    with taddons.context(ra):
+        f = tflow.tflow()
+        # never saved -> req_path is None -> intercept is a no-op
+        ra._intercept_request(f)
+    assert not (tmp_path / "history").exists()
+
+
+def test_intercept_response_no_file_noop(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path / "history"))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        ra._intercept_response(f)  # unknown number -> no-op
+
+
+def test_intercept_edit_unparsable_logs_error(tmp_path, caplog):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        tctx.master.spawn_editor_file = _fake_editor(b"garbage without delimiter")
+        ra.intercept_toggle()
+        before = f.request.method
+        ra.request(f)
+    assert "Could not parse edited request" in caplog.text
+    assert f.request.method == before
+
+
+def test_intercept_edit_io_error_logged(tmp_path, caplog):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        ra.request(f)
+        path = ra.req_path(f)
+
+        def boom(p):
+            raise OSError("nope")
+
+        tctx.master.spawn_editor_file = boom
+        assert ra._edit_in_neovim(path) is None
+    assert "Error while editing" in caplog.text
+
+
+def test_intercept_response_missing_file_noop(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        ra.request(f)  # assigns a number and writes .req, but not .resp
+        assert not (history / "000001.resp").exists()
+        ra._intercept_response(f)  # number known, .resp missing -> no-op
+
+
+def test_intercept_response_without_console_warns(tmp_path, caplog):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra):  # RecordingMaster has no spawn_editor_file
+        f = tflow.tflow(resp=True)
+        ra.request(f)
+        ra.response(f)
+        ra._intercept_response(f)
+    assert "requires the console interface" in caplog.text
+
+
+def test_intercept_response_unparsable_logs_error(tmp_path, caplog):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow(resp=True)
+        ra.request(f)
+        ra.response(f)
+        before = f.response.status_code
+        tctx.master.spawn_editor_file = _fake_editor(b"garbage")
+        ra._intercept_response(f)
+    assert "Could not parse edited response" in caplog.text
+    assert f.response.status_code == before
+
+
+def test_intercept_unmodified_no_orig(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        # editor that leaves the file untouched (no modification)
+        tctx.master.spawn_editor_file = lambda path: None
+        ra.intercept_toggle()
+        ra.request(f)
+    assert (history / "000001.req").exists()
+    assert not (history / "000001.req.orig").exists()
