@@ -383,6 +383,7 @@ def format_http_flow_list(
     render_mode: RenderMode,
     focused: bool,
     marked: str,
+    filename: str | None,
     is_replay: bool,
     request_method: str,
     request_scheme: str,
@@ -409,6 +410,9 @@ def format_http_flow_list(
             req.append(fcol(">>", "focus"))
         else:
             req.append(fcol("  ", "focus"))
+
+    if filename:
+        req.append(fcol(filename, "text"))
 
     method_style = HTTP_REQUEST_METHOD_STYLES.get(request_method, "method_other")
     req.append(fcol(request_method, method_style))
@@ -481,6 +485,7 @@ def format_http_flow_table(
     render_mode: RenderMode,
     focused: bool,
     marked: str,
+    filename: str | None,
     is_replay: str | None,
     request_method: str,
     request_scheme: str,
@@ -503,6 +508,8 @@ def format_http_flow_table(
             focused=focused, intercepted=intercepted, timestamp=request_timestamp
         )
     ]
+
+    items.append(fcol(fixlen(filename or "", 6), "text"))
 
     if intercepted and not response_code:
         request_style = "intercept"
@@ -729,6 +736,7 @@ def format_flow(
     render_mode: RenderMode,
     hostheader: bool = False,  # pass options directly if we need more stuff from them
     focused: bool = True,
+    filename: str | None = None,
 ) -> urwid.Widget:
     """
     This functions calls the proper renderer depending on the flow type.
@@ -841,6 +849,7 @@ def format_flow(
             render_mode=render_mode,
             focused=focused,
             marked=f.marked,
+            filename=filename,
             is_replay=f.is_replay,
             request_method=f.request.method,
             request_scheme=scheme,

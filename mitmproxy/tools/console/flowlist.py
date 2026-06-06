@@ -21,11 +21,16 @@ class FlowItem(urwid.WidgetWrap):
         else:
             render_mode = common.RenderMode.TABLE
 
+        rawsave = self.master.addons.get("rawsave")
+        n = rawsave.flow_numbers.get(self.flow.id) if rawsave else None
+        filename = f"{n:06d}" if n is not None else None
+
         return common.format_flow(
             self.flow,
             render_mode=render_mode,
             focused=self.flow is self.master.view.focus.flow,
             hostheader=self.master.options.showhost,
+            filename=filename,
         )
 
     def selectable(self):
