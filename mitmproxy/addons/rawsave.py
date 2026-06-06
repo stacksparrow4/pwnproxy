@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 
 from mitmproxy import http
+from mitmproxy.net.http import url
 from mitmproxy.net.http.http1 import assemble
 
 logger = logging.getLogger(__name__)
@@ -57,14 +58,26 @@ class RawSave:
         request = flow.request
         protocol = request.scheme or ("https" if request.port == 443 else "http")
         sni = flow.server_conn.sni or flow.client_conn.sni or ""
-        meta = (
-            "---\n"
-            f"host: {request.host}\n"
-            f"port: {request.port}\n"
-            f"protocol: {protocol}\n"
-            f"sni: {sni}\n"
-            "---\n"
-        )
+
+        # The host portion of the Host/authority header, used to determine
+        # whether host/sni match their defaults.
+        header_host = None
+        if request.host_header:
+            header_host, _ = url.parse_authority(request.host_header, check=False)
+
+        default_port = 443 if protocol == "https" else 80
+
+        lines = ["---"]
+        if request.host != header_host:
+            lines.append(f"host: {request.host}")
+        if request.port != default_port:
+            lines.append(f"port: {request.port}")
+        lines.append(f"protocol: {protocol}")
+        if sni and sni != header_host:
+            lines.append(f"sni: {sni}")
+        lines.append("---")
+
+        meta = "".join(f"{line}\n" for line in lines)
         return meta.encode("utf-8", "surrogateescape")
 
     def save_request(self, flow: http.HTTPFlow) -> None:

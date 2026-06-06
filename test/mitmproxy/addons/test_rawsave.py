@@ -7,9 +7,10 @@ def test_request_and_response(tmp_path):
     ra = rawsave.RawSave(directory=str(tmp_path))
     with taddons.context(ra):
         f = tflow.tflow(resp=True)
-        f.request.host = "example.com"
-        f.request.port = 443
+        f.request.host = "other.example"
+        f.request.port = 8443
         f.request.scheme = b"https"
+        f.request.headers["Host"] = "example.com"
         f.server_conn.sni = "example.com"
 
         ra.request(f)
@@ -19,10 +20,12 @@ def test_request_and_response(tmp_path):
     resp = (tmp_path / "1.resp").read_bytes()
 
     assert req.startswith(b"---\n")
-    assert b"host: example.com\n" in req
-    assert b"port: 443\n" in req
+    # host differs from Host header, port is non-default => both present
+    assert b"host: other.example\n" in req
+    assert b"port: 8443\n" in req
     assert b"protocol: https\n" in req
-    assert b"sni: example.com\n" in req
+    # sni matches the Host header => omitted
+    assert b"sni:" not in req
     # metadata block is terminated and followed by the raw request
     assert b"\n---\n" in req
     assert req.split(b"---\n", 2)[2].startswith(f.request.method.encode())
@@ -33,6 +36,42 @@ def test_request_and_response(tmp_path):
     # requests use bare \n line endings, never \r\n
     assert b"\r\n" not in req
     assert b"\r" not in req
+
+
+def test_defaults_are_omitted(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        f.request.host = "example.com"
+        f.request.port = 443
+        f.request.scheme = b"https"
+        f.request.headers["Host"] = "example.com"
+        f.server_conn.sni = "example.com"
+        ra.request(f)
+
+    req = (tmp_path / "1.req").read_bytes()
+    header = req.split(b"---\n", 2)[1]
+    # host matches Host header, port is the https default, sni matches Host header
+    assert header == b"protocol: https\n"
+
+
+def test_http_default_port_omitted(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        f.request.host = "example.com"
+        f.request.port = 80
+        f.request.scheme = b"http"
+        f.request.headers["Host"] = "example.com"
+        f.server_conn.sni = None
+        f.client_conn.sni = None
+        ra.request(f)
+
+    header = (tmp_path / "1.req").read_bytes().split(b"---\n", 2)[1]
+    # http default port (80) omitted; empty sni omitted for all HTTP requests
+    assert b"port:" not in header
+    assert b"sni:" not in header
+    assert header == b"protocol: http\n"
 
 
 def test_counter_increments_per_flow(tmp_path):
