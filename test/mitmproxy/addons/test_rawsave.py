@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 from mitmproxy.addons import rawsave
 from mitmproxy.test import taddons
@@ -212,10 +213,28 @@ def test_missing_content_falls_back_to_head(tmp_path):
     assert (tmp_path / "1.resp").read_bytes().startswith(b"HTTP/")
 
 
-def test_nonexistent_directory_logs_error(tmp_path, caplog):
-    missing = tmp_path / "does" / "not" / "exist"
-    # _highest_existing_number handles the missing dir gracefully (returns 0).
-    ra = rawsave.RawSave(directory=str(missing))
+def test_default_directory_is_history():
+    assert rawsave.RawSave().directory == Path("history")
+
+
+def test_creates_history_directory_on_write(tmp_path):
+    history = tmp_path / "history"
+    assert not history.exists()
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        ra.request(f)
+        ra.response(f)
+    assert history.is_dir()
+    assert (history / "1.req").exists()
+    assert (history / "1.resp").exists()
+
+
+def test_uncreatable_directory_logs_error(tmp_path, caplog):
+    # A regular file blocks creation of the directory below it, so mkdir fails.
+    blocker = tmp_path / "blocker"
+    blocker.write_bytes(b"")
+    ra = rawsave.RawSave(directory=str(blocker / "sub"))
     assert ra.counter == 0
     with taddons.context(ra):
         f = tflow.tflow(resp=True)

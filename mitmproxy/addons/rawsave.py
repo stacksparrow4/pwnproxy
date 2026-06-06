@@ -22,7 +22,10 @@ class RawSave:
     HTTP request. Response files contain the raw HTTP response.
     """
 
-    def __init__(self, directory: str = ".") -> None:
+    def __init__(self, directory: str = "history") -> None:
+        # Files are stored in a "history" folder in the current working
+        # directory by default. The folder is created lazily when the first
+        # file is written (see _write).
         self.directory = Path(directory)
         # Maps flow.id -> the number assigned to that flow.
         self.flow_numbers: dict[str, int] = {}
@@ -56,6 +59,7 @@ class RawSave:
 
     def _write(self, name: str, data: bytes) -> None:
         try:
+            self.directory.mkdir(parents=True, exist_ok=True)
             (self.directory / name).write_bytes(data)
         except OSError as e:
             logger.error(f"Error while writing {name}: {e}")
