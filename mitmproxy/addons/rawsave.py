@@ -1,0 +1,95 @@
+import logging
+import re
+from pathlib import Path
+
+from mitmproxy import http
+from mitmproxy.net.http.http1 import assemble
+
+logger = logging.getLogger(__name__)
+
+
+class RawSave:
+    """
+    Persist every HTTP request and response to the current working directory
+    as numbered ``N.req`` / ``N.resp`` files.
+
+    Request files are prefixed with a small ``---`` delimited metadata block
+    describing the connection (host, port, protocol, sni) followed by the raw
+    HTTP request. Response files contain the raw HTTP response.
+    """
+
+    def __init__(self, directory: str = ".") -> None:
+        self.directory = Path(directory)
+        # Maps flow.id -> the number assigned to that flow.
+        self.flow_numbers: dict[str, int] = {}
+        # Start after any pre-existing N.req/N.resp files so we never clobber
+        # data from a previous run.
+        self.counter = self._highest_existing_number()
+
+    def _highest_existing_number(self) -> int:
+        highest = 0
+        pattern = re.compile(r"^(\d+)\.(req|resp)$")
+        try:
+            entries = list(self.directory.iterdir())
+        except OSError:
+            return 0
+        for entry in entries:
+            m = pattern.match(entry.name)
+            if m:
+                highest = max(highest, int(m.group(1)))
+        return highest
+
+    def _number_for(self, flow: http.HTTPFlow) -> int:
+        n = self.flow_numbers.get(flow.id)
+        if n is None:
+            self.counter += 1
+            n = self.counter
+            self.flow_numbers[flow.id] = n
+        return n
+
+    def _write(self, name: str, data: bytes) -> None:
+        try:
+            (self.directory / name).write_bytes(data)
+        except OSError as e:
+            logger.error(f"Error while writing {name}: {e}")
+
+    def _metadata(self, flow: http.HTTPFlow) -> bytes:
+        request = flow.request
+        protocol = request.scheme or ("https" if request.port == 443 else "http")
+        sni = flow.server_conn.sni or flow.client_conn.sni or ""
+        meta = (
+            "---\n"
+            f"host: {request.host}\n"
+            f"port: {request.port}\n"
+            f"protocol: {protocol}\n"
+            f"sni: {sni}\n"
+            "---\n"
+        )
+        return meta.encode("utf-8", "surrogateescape")
+
+    def save_request(self, flow: http.HTTPFlow) -> None:
+        n = self._number_for(flow)
+        try:
+            raw = assemble.assemble_request(flow.request)
+        except ValueError:
+            # Content may be missing (e.g. streamed); fall back to the head.
+            raw = assemble.assemble_request_head(flow.request)
+        self._write(f"{n}.req", self._metadata(flow) + raw)
+
+    def save_response(self, flow: http.HTTPFlow) -> None:
+        if flow.response is None:
+            return
+        n = self._number_for(flow)
+        try:
+            raw = assemble.assemble_response(flow.response)
+        except ValueError:
+            raw = assemble.assemble_response_head(flow.response)
+        self._write(f"{n}.resp", raw)
+
+    # mitmproxy hooks
+
+    def request(self, flow: http.HTTPFlow) -> None:
+        self.save_request(flow)
+
+    def response(self, flow: http.HTTPFlow) -> None:
+        self.save_response(flow)

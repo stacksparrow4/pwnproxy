@@ -19,6 +19,7 @@ from mitmproxy.addons import next_layer
 from mitmproxy.addons import onboarding
 from mitmproxy.addons import proxyauth
 from mitmproxy.addons import proxyserver
+from mitmproxy.addons import rawsave
 from mitmproxy.addons import save
 from mitmproxy.addons import savehar
 from mitmproxy.addons import script
@@ -61,6 +62,7 @@ def default_addons():
         stickycookie.StickyCookie(),
         save.Save(),
         savehar.SaveHar(),
+        rawsave.RawSave(),
         tlsconfig.TlsConfig(),
         upstream_auth.UpstreamAuth(),
         update_alt_svc.UpdateAltSvc(),
