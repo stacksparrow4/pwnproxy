@@ -129,7 +129,11 @@ class RawSave:
             response.data.status_code,
             response.data.reason,
         )
-        return b"%s\r\n%s\r\n%s" % (first_line, bytes(headers), body)
+        head = b"%s\r\n%s\r\n" % (first_line, bytes(headers))
+        # Use bare \n line endings in the head (matching the request files).
+        # The body is left untouched as it may be binary.
+        head = head.replace(b"\r\n", b"\n")
+        return head + body
 
     def save_response(self, flow: http.HTTPFlow) -> None:
         if flow.response is None:

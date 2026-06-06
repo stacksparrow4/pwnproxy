@@ -164,11 +164,13 @@ def test_response_body_is_decoded(tmp_path):
         ra.response(f)
 
     resp = (tmp_path / "1.resp").read_bytes()
-    head, _, body = resp.partition(b"\r\n\r\n")
+    head, _, body = resp.partition(b"\n\n")
     assert body == b"hello decoded world"
     # encoding header stripped, content-length matches the decoded body
     assert b"content-encoding" not in head.lower()
     assert b"content-length: 19" in head.lower()
+    # the head uses bare \n line endings, no \r
+    assert b"\r" not in head
 
 
 def test_chunked_transfer_encoding_is_removed(tmp_path):
@@ -178,7 +180,7 @@ def test_chunked_transfer_encoding_is_removed(tmp_path):
         f.response.headers["transfer-encoding"] = "chunked"
         ra.response(f)
 
-    head = (tmp_path / "1.resp").read_bytes().partition(b"\r\n\r\n")[0]
+    head = (tmp_path / "1.resp").read_bytes().partition(b"\n\n")[0]
     assert b"transfer-encoding" not in head.lower()
     assert b"content-length:" in head.lower()
 
@@ -192,7 +194,7 @@ def test_undecodable_response_kept_as_is(tmp_path):
         f.response.raw_content = b"not-gzip"
         ra.response(f)
 
-    body = (tmp_path / "1.resp").read_bytes().partition(b"\r\n\r\n")[2]
+    body = (tmp_path / "1.resp").read_bytes().partition(b"\n\n")[2]
     assert body == b"not-gzip"
 
 
