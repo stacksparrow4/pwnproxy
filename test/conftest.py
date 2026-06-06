@@ -43,6 +43,19 @@ def event_loop_policy(request):
     return EagerTaskCreationEventLoopPolicy()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path, monkeypatch):
+    """
+    Run every test in its own temporary working directory.
+
+    This keeps tests isolated from each other and from the repository when code
+    under test reads or writes files relative to the current working directory
+    (e.g. the always-on RawSave addon, which persists *.req/*.resp files to the
+    CWD).
+    """
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture()
 def tdata():
     return data.Data(__name__)
