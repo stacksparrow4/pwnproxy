@@ -320,6 +320,8 @@ def test_resolve():
 
 def test_movement():
     v = view.View()
+    # This test exercises explicit movement commands, so disable focus-follow.
+    v.focus_follow = False
     with taddons.context():
         v.go(0)
         v.add(
@@ -533,6 +535,13 @@ def test_signals():
     clearrec()
     v.update([f])
     assert not any([rec_add, rec_update, rec_remove, rec_refresh])
+
+
+def test_focus_follow_default_on():
+    # Follow mode is enabled by default; a freshly constructed View must reflect
+    # this even before configure() runs (default-valued options are not passed
+    # to configure() at startup).
+    assert view.View().focus_follow is True
 
 
 def test_focus_follow():

@@ -81,7 +81,7 @@ class ConsoleAddon:
             "Show layout component headers",
         )
         loader.add_option(
-            "console_focus_follow", bool, False, "Focus follows new flows."
+            "console_focus_follow", bool, True, "Focus follows new flows."
         )
         loader.add_option(
             "console_palette",

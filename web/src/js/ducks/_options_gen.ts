@@ -126,7 +126,7 @@ export const defaultState: OptionsState = {
     confdir: "~/.mitmproxy",
     connect_addr: undefined,
     connection_strategy: "eager",
-    console_focus_follow: false,
+    console_focus_follow: true,
     content_view_lines_cutoff: 512,
     dns_name_servers: [],
     dns_use_hosts_file: true,

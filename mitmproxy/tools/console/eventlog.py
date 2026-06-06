@@ -29,7 +29,7 @@ class EventLog(urwid.ListBox, layoutwidget.LayoutWidget):
 
     def load(self, loader):
         loader.add_option(
-            "console_focus_follow", bool, False, "Focus follows new flows."
+            "console_focus_follow", bool, True, "Focus follows new flows."
         )
 
     def set_focus(self, index):

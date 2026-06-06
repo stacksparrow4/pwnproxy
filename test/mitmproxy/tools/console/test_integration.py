@@ -1,4 +1,7 @@
 def test_integration(tdata, console):
+    # This test navigates flows explicitly, so disable focus-follow (on by
+    # default) to keep the initial focus deterministic.
+    console.options.console_focus_follow = False
     console.type(
         f":view.flows.load {tdata.path('mitmproxy/data/dumpfile-7.mitm')}<enter>"
     )

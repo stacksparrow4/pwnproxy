@@ -162,7 +162,10 @@ class View(collections.abc.Sequence):
         )
         self.order_key: _OrderKey = self.default_order
         self.order_reversed = False
-        self.focus_follow = False
+        # Must match the default of the "console_focus_follow" option below:
+        # options left at their default are not passed to configure() at
+        # startup, so this initial value is what's used until it is toggled.
+        self.focus_follow = True
 
         self._view = sortedcontainers.SortedListWithKey(key=self.order_key)
 
@@ -201,7 +204,7 @@ class View(collections.abc.Sequence):
             "view_order_reversed", bool, False, "Reverse the sorting order."
         )
         loader.add_option(
-            "console_focus_follow", bool, False, "Focus follows new flows."
+            "console_focus_follow", bool, True, "Focus follows new flows."
         )
 
     def store_count(self):
