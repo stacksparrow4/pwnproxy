@@ -4,7 +4,6 @@ from pathlib import Path
 
 from mitmproxy import http
 from mitmproxy.net.http import url
-from mitmproxy.net.http.http1 import assemble
 
 logger = logging.getLogger(__name__)
 
@@ -80,25 +79,63 @@ class RawSave:
         meta = "".join(f"{line}\n" for line in lines)
         return meta.encode("utf-8", "surrogateescape")
 
+    def _assemble_request_head(self, request: http.Request) -> bytes:
+        """
+        Assemble the request head as it was intercepted (origin-form), rather
+        than the proxy/absolute-form that http1 assembly emits when an
+        authority is present (e.g. for HTTP/2 and HTTP/3 requests).
+        """
+        data = request.data
+        if request.first_line_format == "authority":
+            # CONNECT requests legitimately use authority-form.
+            first_line = b"%s %s %s" % (data.method, data.authority, data.http_version)
+            headers = request.headers
+        else:
+            first_line = b"%s %s %s" % (data.method, data.path, data.http_version)
+            headers = request.headers
+            if "host" not in headers and request.host_header:
+                # HTTP/2 and HTTP/3 carry the authority out-of-band; restore it
+                # as a Host header so the saved request looks like HTTP/1.x.
+                headers = http.Headers(headers.fields)
+                headers.insert(0, "Host", request.host_header)
+        return b"%s\r\n%s\r\n" % (first_line, bytes(headers))
+
     def save_request(self, flow: http.HTTPFlow) -> None:
         n = self._number_for(flow)
-        try:
-            raw = assemble.assemble_request(flow.request)
-        except ValueError:
-            # Content may be missing (e.g. streamed); fall back to the head.
-            raw = assemble.assemble_request_head(flow.request)
+        head = self._assemble_request_head(flow.request)
+        body = flow.request.data.content or b""
+        raw = head + body
         # Use bare \n line endings (technically not valid HTTP) as requested.
         raw = raw.replace(b"\r\n", b"\n")
         self._write(f"{n}.req", self._metadata(flow) + raw)
+
+    def _assemble_response(self, response: http.Response) -> bytes:
+        """
+        Assemble the response with a decoded (e.g. un-gzipped/un-brotli'd) body.
+
+        Works on a copy of the headers so the live flow is left untouched.
+        """
+        body = response.get_content(strict=False) or b""
+        headers = http.Headers(response.headers.fields)
+        # The body is no longer compressed or chunked, so drop the encodings
+        # and make content-length match the decoded body.
+        if "content-encoding" in headers:
+            del headers["content-encoding"]
+        if "transfer-encoding" in headers:
+            del headers["transfer-encoding"]
+        headers["content-length"] = str(len(body))
+        first_line = b"%s %d %s" % (
+            response.data.http_version,
+            response.data.status_code,
+            response.data.reason,
+        )
+        return b"%s\r\n%s\r\n%s" % (first_line, bytes(headers), body)
 
     def save_response(self, flow: http.HTTPFlow) -> None:
         if flow.response is None:
             return
         n = self._number_for(flow)
-        try:
-            raw = assemble.assemble_response(flow.response)
-        except ValueError:
-            raw = assemble.assemble_response_head(flow.response)
+        raw = self._assemble_response(flow.response)
         self._write(f"{n}.resp", raw)
 
     # mitmproxy hooks

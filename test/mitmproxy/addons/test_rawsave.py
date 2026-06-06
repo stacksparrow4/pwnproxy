@@ -74,6 +74,38 @@ def test_http_default_port_omitted(tmp_path):
     assert header == b"protocol: http\n"
 
 
+def test_http2_uses_origin_form_with_host_header(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        f.request.http_version = "HTTP/2.0"
+        f.request.scheme = b"https"
+        f.request.authority = "example.com"
+        f.request.path = "/"
+        assert "Host" not in f.request.headers
+        ra.request(f)
+
+    req = (tmp_path / "1.req").read_bytes()
+    body = req.split(b"---\n", 2)[2]
+    # origin-form request line, not the absolute/proxy form
+    assert body.startswith(b"GET / HTTP/2.0\n")
+    assert b"https://example.com/" not in body
+    # authority restored as a Host header at the top
+    assert b"\nHost: example.com\n" in body
+
+
+def test_connect_keeps_authority_form(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow()
+        f.request.method = "CONNECT"
+        f.request.authority = "example.com:443"
+        ra.request(f)
+
+    body = (tmp_path / "1.req").read_bytes().split(b"---\n", 2)[2]
+    assert body.startswith(b"CONNECT example.com:443 ")
+
+
 def test_counter_increments_per_flow(tmp_path):
     ra = rawsave.RawSave(directory=str(tmp_path))
     with taddons.context(ra):
@@ -118,6 +150,50 @@ def test_no_response(tmp_path):
         assert f.response is None
         ra.response(f)
     assert not list(tmp_path.iterdir())
+
+
+def test_response_body_is_decoded(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        f.response.headers["content-encoding"] = "gzip"
+        # Assigning .content re-encodes using the content-encoding header,
+        # so raw_content ends up gzip-compressed on the wire.
+        f.response.content = b"hello decoded world"
+        assert f.response.raw_content != b"hello decoded world"
+        ra.response(f)
+
+    resp = (tmp_path / "1.resp").read_bytes()
+    head, _, body = resp.partition(b"\r\n\r\n")
+    assert body == b"hello decoded world"
+    # encoding header stripped, content-length matches the decoded body
+    assert b"content-encoding" not in head.lower()
+    assert b"content-length: 19" in head.lower()
+
+
+def test_chunked_transfer_encoding_is_removed(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        f.response.headers["transfer-encoding"] = "chunked"
+        ra.response(f)
+
+    head = (tmp_path / "1.resp").read_bytes().partition(b"\r\n\r\n")[0]
+    assert b"transfer-encoding" not in head.lower()
+    assert b"content-length:" in head.lower()
+
+
+def test_undecodable_response_kept_as_is(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        f.response.headers["content-encoding"] = "gzip"
+        # Not actually valid gzip data => cannot be decoded.
+        f.response.raw_content = b"not-gzip"
+        ra.response(f)
+
+    body = (tmp_path / "1.resp").read_bytes().partition(b"\r\n\r\n")[2]
+    assert body == b"not-gzip"
 
 
 def test_missing_content_falls_back_to_head(tmp_path):
