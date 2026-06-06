@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import shutil
 import time
@@ -125,6 +126,35 @@ class RawSave:
                 headers.insert(0, "Host", request.host_header)
         return b"%s\r\n%s\r\n" % (first_line, bytes(headers))
 
+    def _link_into_map(self, flow: http.HTTPFlow, name: str) -> None:
+        """
+        Create a symlink for ``history/<name>`` under a ``map`` directory whose
+        subdirectory structure mirrors the request's host and path, e.g.
+        a request to https://example.com/test saved as history/000001.req gets
+        a symlink at map/example.com/test/000001.req -> ../../../history/000001.req.
+
+        Query strings are ignored; each path segment becomes a directory.
+        """
+        request = flow.request
+        parts = [request.host, *request.path_components]
+        # Skip empty/traversal segments so a hostile target can't escape map/.
+        safe = [
+            p.replace("/", "_").replace(os.sep, "_")
+            for p in parts
+            if p and p not in (".", "..")
+        ]
+        map_dir = self.directory.parent / "map"
+        subdir = map_dir.joinpath(*safe)
+        link = subdir / name
+        target = os.path.relpath(self.directory / name, subdir)
+        try:
+            subdir.mkdir(parents=True, exist_ok=True)
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to(target)
+        except OSError as e:
+            logger.error(f"Error while creating map symlink {link}: {e}")
+
     def save_request(self, flow: http.HTTPFlow) -> None:
         n = self._number_for(flow)
         head = self._assemble_request_head(flow.request)
@@ -132,7 +162,9 @@ class RawSave:
         raw = head + body
         # Use bare \n line endings (technically not valid HTTP) as requested.
         raw = raw.replace(b"\r\n", b"\n")
-        self._write(self._name(n, "req"), self._metadata(flow) + raw)
+        name = self._name(n, "req")
+        self._write(name, self._metadata(flow) + raw)
+        self._link_into_map(flow, name)
 
     def _assemble_response(self, response: http.Response) -> bytes:
         """
@@ -165,7 +197,9 @@ class RawSave:
             return
         n = self._number_for(flow)
         raw = self._assemble_response(flow.response)
-        self._write(self._name(n, "resp"), raw)
+        name = self._name(n, "resp")
+        self._write(name, raw)
+        self._link_into_map(flow, name)
 
     # Restoring previously saved flows
 

@@ -786,3 +786,108 @@ def test_stop_intercepting_response_disables(tmp_path, caplog):
     assert ra.intercept_response is False
     assert "Response intercept: off" in caplog.text
     assert not (history / "000001.resp.orig").exists()
+
+
+import os as _os
+
+
+def test_map_symlink_created(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ra = rawsave.RawSave()  # history/ in cwd
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        f.request.scheme = b"https"
+        f.request.host = "example.com"
+        f.request.path = "/test"
+        ra.request(f)
+        ra.response(f)
+
+    link_req = tmp_path / "map" / "example.com" / "test" / "000001.req"
+    link_resp = tmp_path / "map" / "example.com" / "test" / "000001.resp"
+    assert link_req.is_symlink()
+    assert link_resp.is_symlink()
+    # points at the history file via a relative path
+    assert _os.readlink(link_req) == _os.path.join(
+        "..", "..", "..", "history", "000001.req"
+    )
+    # symlink resolves to the actual saved request
+    assert link_req.resolve() == (tmp_path / "history" / "000001.req").resolve()
+    assert link_req.read_bytes() == (tmp_path / "history" / "000001.req").read_bytes()
+
+
+def test_map_nested_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ra = rawsave.RawSave()
+    with taddons.context(ra):
+        f = tflow.tflow()
+        f.request.scheme = b"https"
+        f.request.host = "example.com"
+        f.request.path = "/test/test2"
+        ra.request(f)
+
+    link = tmp_path / "map" / "example.com" / "test" / "test2" / "000001.req"
+    assert link.is_symlink()
+    assert _os.readlink(link) == _os.path.join(
+        "..", "..", "..", "..", "history", "000001.req"
+    )
+
+
+def test_map_query_string_ignored(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ra = rawsave.RawSave()
+    with taddons.context(ra):
+        f = tflow.tflow()
+        f.request.scheme = b"https"
+        f.request.host = "example.com"
+        f.request.path = "/test?id=1"
+        ra.request(f)
+
+    assert (tmp_path / "map" / "example.com" / "test" / "000001.req").is_symlink()
+    assert not (tmp_path / "map" / "example.com" / "test").joinpath("id=1").exists()
+
+
+def test_map_root_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ra = rawsave.RawSave()
+    with taddons.context(ra):
+        f = tflow.tflow()
+        f.request.scheme = b"https"
+        f.request.host = "example.com"
+        f.request.path = "/"
+        ra.request(f)
+
+    link = tmp_path / "map" / "example.com" / "000001.req"
+    assert link.is_symlink()
+    assert _os.readlink(link) == _os.path.join("..", "..", "history", "000001.req")
+
+
+def test_map_traversal_segments_sanitised(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ra = rawsave.RawSave()
+    with taddons.context(ra):
+        f = tflow.tflow()
+        f.request.scheme = b"https"
+        f.request.host = "example.com"
+        # %2e%2e decodes to ".." which must not escape the map directory
+        f.request.path = "/%2e%2e/x"
+        ra.request(f)
+
+    # ".." segment dropped; only "x" remains
+    assert (tmp_path / "map" / "example.com" / "x" / "000001.req").is_symlink()
+    assert not (tmp_path / "map" / "000001.req").exists()
+
+
+def test_map_symlink_error_logged(tmp_path, monkeypatch, caplog):
+    monkeypatch.chdir(tmp_path)
+    ra = rawsave.RawSave()
+    with taddons.context(ra):
+        f = tflow.tflow()
+        f.request.host = "example.com"
+        f.request.path = "/test"
+
+        def boom(self, *a, **k):
+            raise OSError("nope")
+
+        monkeypatch.setattr(rawsave.Path, "mkdir", boom)
+        ra.request(f)
+    assert "Error while creating map symlink" in caplog.text
