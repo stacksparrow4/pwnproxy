@@ -1,11 +1,16 @@
 import logging
 import re
+import shutil
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
+from mitmproxy import command
 from mitmproxy import connection
 from mitmproxy import ctx
+from mitmproxy import flow
 from mitmproxy import http
+from mitmproxy.log import ALERT
 from mitmproxy.net.http import url
 from mitmproxy.utils import asyncio_utils
 
@@ -279,6 +284,31 @@ class RawSave:
             self.flow_numbers[flow.id] = n
             flows.append(flow)
         return flows
+
+    @command.command("rawsave.replay")
+    def replay(self, flows: Sequence[flow.Flow]) -> None:
+        """
+        Copy the saved ``.req``/``.resp`` files for the given flows into a
+        "replay" directory, preserving their numbers (e.g. history/000001.req
+        -> replay/000001.req). The replay directory is created if needed.
+        """
+        replay_dir = Path("replay")
+        for f in flows:
+            n = self.flow_numbers.get(f.id)
+            if n is None:
+                logger.warning("No saved request file for this flow.")
+                continue
+            try:
+                replay_dir.mkdir(parents=True, exist_ok=True)
+                for suffix in ("req", "resp"):
+                    name = self._name(n, suffix)
+                    src = self.directory / name
+                    if src.exists():
+                        shutil.copyfile(src, replay_dir / name)
+            except OSError as e:
+                logger.error(f"Error while copying to {replay_dir}: {e}")
+                continue
+            logging.log(ALERT, str(replay_dir / self._name(n, "req")))
 
     def req_path(self, flow: http.HTTPFlow) -> Path | None:
         """Return the path of the ``.req`` file for ``flow``, if it exists."""

@@ -126,7 +126,7 @@ def map(km: Keymap) -> None:
         ["flowlist"],
         "Set flow list order",
     )
-    km.add("r", "replay.client @focus", ["flowlist", "flowview"], "Replay this flow")
+    km.add("r", "rawsave.replay @focus", ["flowlist", "flowview"], "Replay this flow")
     km.add("S", "console.command replay.server ", ["flowlist"], "Start server replay")
     km.add(
         "v", "set view_order_reversed toggle", ["flowlist"], "Reverse flow list order"

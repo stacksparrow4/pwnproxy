@@ -405,3 +405,62 @@ def test_filename_zero_padding():
     assert rawsave.RawSave._name(1, "req") == "000001.req"
     assert rawsave.RawSave._name(42, "resp") == "000042.resp"
     assert rawsave.RawSave._name(1234567, "req") == "1234567.req"
+
+
+def test_replay_copies_files(tmp_path, monkeypatch, caplog):
+    import logging as _logging
+    monkeypatch.chdir(tmp_path)
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        ra.request(f)
+        ra.response(f)
+
+        replay = tmp_path / "replay"
+        assert not replay.exists()
+        with caplog.at_level(_logging.INFO):
+            ra.replay([f])
+
+    assert (replay / "000001.req").read_bytes() == (history / "000001.req").read_bytes()
+    assert (replay / "000001.resp").read_bytes() == (
+        history / "000001.resp"
+    ).read_bytes()
+    assert "replay/000001.req" in caplog.text
+
+
+def test_replay_request_only(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra):
+        f = tflow.tflow()  # no response
+        ra.request(f)
+        ra.replay([f])
+
+    replay = tmp_path / "replay"
+    assert (replay / "000001.req").exists()
+    assert not (replay / "000001.resp").exists()
+
+
+def test_replay_unknown_flow_warns(tmp_path, monkeypatch, caplog):
+    monkeypatch.chdir(tmp_path)
+    ra = rawsave.RawSave(directory=str(tmp_path / "history"))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)  # never saved -> no number
+        ra.replay([f])
+    assert "No saved request file" in caplog.text
+    assert not (tmp_path / "replay").exists()
+
+
+def test_replay_copy_error_logged(tmp_path, monkeypatch, caplog):
+    monkeypatch.chdir(tmp_path)
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        ra.request(f)
+        # Block creation of the replay directory by putting a file in its place.
+        (tmp_path / "replay").write_bytes(b"")
+        ra.replay([f])
+    assert "Error while copying" in caplog.text
