@@ -1,9 +1,13 @@
 import logging
 import re
+import time
 from pathlib import Path
 
+from mitmproxy import connection
+from mitmproxy import ctx
 from mitmproxy import http
 from mitmproxy.net.http import url
+from mitmproxy.utils import asyncio_utils
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +26,9 @@ class RawSave:
         self.directory = Path(directory)
         # Maps flow.id -> the number assigned to that flow.
         self.flow_numbers: dict[str, int] = {}
+        # ids of flows we restored on startup, so we don't immediately
+        # re-save them when load_flow replays their lifecycle events.
+        self.restored_ids: set[str] = set()
         # Start after any pre-existing N.req/N.resp files so we never clobber
         # data from a previous run.
         self.counter = self._highest_existing_number()
@@ -142,10 +149,144 @@ class RawSave:
         raw = self._assemble_response(flow.response)
         self._write(f"{n}.resp", raw)
 
+    # Restoring previously saved flows
+
+    @staticmethod
+    def _parse_head_and_body(raw: bytes) -> tuple[list[bytes], bytes]:
+        """Split a saved message into its head lines and body."""
+        head, _, body = raw.partition(b"\n\n")
+        return head.split(b"\n"), body
+
+    @staticmethod
+    def _parse_headers(header_lines: list[bytes]) -> http.Headers:
+        fields = []
+        for line in header_lines:
+            if not line:
+                continue
+            key, _, value = line.partition(b":")
+            fields.append((key.strip(), value.strip()))
+        return http.Headers(fields)
+
+    def _build_flow(self, req_bytes: bytes, resp_bytes: bytes | None) -> http.HTTPFlow:
+        # A valid request file has a leading ``---``-delimited metadata block;
+        # if it's missing this unpack raises ValueError, which the caller skips.
+        _, meta_block, rest = req_bytes.split(b"---\n", 2)
+
+        meta: dict[str, str] = {}
+        for line in meta_block.splitlines():
+            key, sep, value = line.partition(b":")
+            if sep:
+                meta[key.strip().decode()] = value.strip().decode()
+
+        head_lines, body = self._parse_head_and_body(rest)
+        request_line = head_lines[0].split(b" ")
+        method = request_line[0]
+        http_version = request_line[-1]
+        target = b" ".join(request_line[1:-1])
+        headers = self._parse_headers(head_lines[1:])
+
+        protocol = meta.get("protocol", "http")
+        default_port = 443 if protocol == "https" else 80
+        port = int(meta["port"]) if "port" in meta else default_port
+
+        header_host = None
+        host_header = headers.get("host")
+        if host_header:
+            header_host, _ = url.parse_authority(host_header, check=False)
+        host = meta.get("host") or header_host or ""
+        sni = meta.get("sni") or (host if protocol == "https" else None)
+
+        if method.upper() == b"CONNECT":
+            authority = target
+            path = b""
+        else:
+            authority = b""
+            path = target
+
+        now = time.time()
+        request = http.Request(
+            host=host,
+            port=port,
+            method=method,
+            scheme=protocol.encode(),
+            authority=authority,
+            path=path,
+            http_version=http_version,
+            headers=headers,
+            content=body,
+            trailers=None,
+            timestamp_start=now,
+            timestamp_end=now,
+        )
+
+        client = connection.Client(
+            peername=("0.0.0.0", 0), sockname=("0.0.0.0", 0), timestamp_start=now
+        )
+        server = connection.Server(address=(host, port))
+        server.sni = sni
+        flow = http.HTTPFlow(client, server)
+        flow.request = request
+
+        if resp_bytes is not None:
+            resp_head_lines, resp_body = self._parse_head_and_body(resp_bytes)
+            status_line = resp_head_lines[0].split(b" ")
+            flow.response = http.Response(
+                http_version=status_line[0],
+                status_code=int(status_line[1]),
+                reason=b" ".join(status_line[2:]),
+                headers=self._parse_headers(resp_head_lines[1:]),
+                content=resp_body,
+                trailers=None,
+                timestamp_start=now,
+                timestamp_end=now,
+            )
+
+        return flow
+
+    def _restored_flows(self) -> list[http.HTTPFlow]:
+        pattern = re.compile(r"^(\d+)\.req$")
+        numbers = []
+        try:
+            entries = list(self.directory.iterdir())
+        except OSError:
+            return []
+        for entry in entries:
+            m = pattern.match(entry.name)
+            if m:
+                numbers.append(int(m.group(1)))
+
+        flows = []
+        for n in sorted(numbers):
+            req_file = self.directory / f"{n}.req"
+            resp_file = self.directory / f"{n}.resp"
+            try:
+                req_bytes = req_file.read_bytes()
+                resp_bytes = resp_file.read_bytes() if resp_file.exists() else None
+                flow = self._build_flow(req_bytes, resp_bytes)
+            except (OSError, ValueError, IndexError) as e:
+                logger.warning(f"Could not restore {n}.req: {e}")
+                continue
+            self.restored_ids.add(flow.id)
+            flows.append(flow)
+        return flows
+
+    async def restore(self) -> None:
+        for flow in self._restored_flows():
+            await ctx.master.load_flow(flow)
+
     # mitmproxy hooks
 
+    def running(self) -> None:
+        asyncio_utils.create_task(
+            self.restore(), name="rawsave restore", keep_ref=False
+        )
+
     def request(self, flow: http.HTTPFlow) -> None:
+        if flow.id in self.restored_ids:
+            return
         self.save_request(flow)
 
     def response(self, flow: http.HTTPFlow) -> None:
+        if flow.id in self.restored_ids:
+            return
         self.save_response(flow)
