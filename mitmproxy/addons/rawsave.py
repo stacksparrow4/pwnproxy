@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class RawSave:
     """
     Persist every HTTP request and response to the current working directory
-    as numbered ``N.req`` / ``N.resp`` files.
+    as numbered, zero-padded ``000001.req`` / ``000001.resp`` files.
 
     Request files are prefixed with a small ``---`` delimited metadata block
     describing the connection (host, port, protocol, sni) followed by the raw
@@ -48,6 +48,11 @@ class RawSave:
             if m:
                 highest = max(highest, int(m.group(1)))
         return highest
+
+    @staticmethod
+    def _name(n: int, suffix: str) -> str:
+        """Build a file name, zero-padded to six digits, e.g. ``000001.req``."""
+        return f"{n:06d}.{suffix}"
 
     def _number_for(self, flow: http.HTTPFlow) -> int:
         n = self.flow_numbers.get(flow.id)
@@ -118,7 +123,7 @@ class RawSave:
         raw = head + body
         # Use bare \n line endings (technically not valid HTTP) as requested.
         raw = raw.replace(b"\r\n", b"\n")
-        self._write(f"{n}.req", self._metadata(flow) + raw)
+        self._write(self._name(n, "req"), self._metadata(flow) + raw)
 
     def _assemble_response(self, response: http.Response) -> bytes:
         """
@@ -151,7 +156,7 @@ class RawSave:
             return
         n = self._number_for(flow)
         raw = self._assemble_response(flow.response)
-        self._write(f"{n}.resp", raw)
+        self._write(self._name(n, "resp"), raw)
 
     # Restoring previously saved flows
 
@@ -261,14 +266,14 @@ class RawSave:
 
         flows = []
         for n in sorted(numbers):
-            req_file = self.directory / f"{n}.req"
-            resp_file = self.directory / f"{n}.resp"
+            req_file = self.directory / self._name(n, "req")
+            resp_file = self.directory / self._name(n, "resp")
             try:
                 req_bytes = req_file.read_bytes()
                 resp_bytes = resp_file.read_bytes() if resp_file.exists() else None
                 flow = self._build_flow(req_bytes, resp_bytes)
             except (OSError, ValueError, IndexError) as e:
-                logger.warning(f"Could not restore {n}.req: {e}")
+                logger.warning(f"Could not restore {self._name(n, 'req')}: {e}")
                 continue
             self.restored_ids.add(flow.id)
             self.flow_numbers[flow.id] = n
@@ -280,7 +285,7 @@ class RawSave:
         n = self.flow_numbers.get(flow.id)
         if n is None:
             return None
-        path = self.directory / f"{n}.req"
+        path = self.directory / self._name(n, "req")
         if not path.exists():
             return None
         return path

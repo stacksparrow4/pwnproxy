@@ -19,8 +19,8 @@ def test_request_and_response(tmp_path):
         ra.request(f)
         ra.response(f)
 
-    req = (tmp_path / "1.req").read_bytes()
-    resp = (tmp_path / "1.resp").read_bytes()
+    req = (tmp_path / "000001.req").read_bytes()
+    resp = (tmp_path / "000001.resp").read_bytes()
 
     assert req.startswith(b"---\n")
     # host differs from Host header, port is non-default => both present
@@ -52,7 +52,7 @@ def test_defaults_are_omitted(tmp_path):
         f.server_conn.sni = "example.com"
         ra.request(f)
 
-    req = (tmp_path / "1.req").read_bytes()
+    req = (tmp_path / "000001.req").read_bytes()
     header = req.split(b"---\n", 2)[1]
     # host matches Host header, port is the https default, sni matches Host header
     assert header == b"protocol: https\n"
@@ -70,7 +70,7 @@ def test_http_default_port_omitted(tmp_path):
         f.client_conn.sni = None
         ra.request(f)
 
-    header = (tmp_path / "1.req").read_bytes().split(b"---\n", 2)[1]
+    header = (tmp_path / "000001.req").read_bytes().split(b"---\n", 2)[1]
     # http default port (80) omitted; empty sni omitted for all HTTP requests
     assert b"port:" not in header
     assert b"sni:" not in header
@@ -88,7 +88,7 @@ def test_http2_uses_origin_form_with_host_header(tmp_path):
         assert "Host" not in f.request.headers
         ra.request(f)
 
-    req = (tmp_path / "1.req").read_bytes()
+    req = (tmp_path / "000001.req").read_bytes()
     body = req.split(b"---\n", 2)[2]
     # origin-form request line, not the absolute/proxy form
     assert body.startswith(b"GET / HTTP/2.0\n")
@@ -105,7 +105,7 @@ def test_connect_keeps_authority_form(tmp_path):
         f.request.authority = "example.com:443"
         ra.request(f)
 
-    body = (tmp_path / "1.req").read_bytes().split(b"---\n", 2)[2]
+    body = (tmp_path / "000001.req").read_bytes().split(b"---\n", 2)[2]
     assert body.startswith(b"CONNECT example.com:443 ")
 
 
@@ -119,22 +119,22 @@ def test_counter_increments_per_flow(tmp_path):
         ra.request(f2)
         ra.response(f2)
 
-    assert (tmp_path / "1.req").exists()
-    assert (tmp_path / "1.resp").exists()
-    assert (tmp_path / "2.req").exists()
-    assert (tmp_path / "2.resp").exists()
+    assert (tmp_path / "000001.req").exists()
+    assert (tmp_path / "000001.resp").exists()
+    assert (tmp_path / "000002.req").exists()
+    assert (tmp_path / "000002.resp").exists()
 
 
 def test_resumes_after_existing_files(tmp_path):
-    (tmp_path / "3.req").write_bytes(b"old")
-    (tmp_path / "1.resp").write_bytes(b"old")
+    (tmp_path / "000003.req").write_bytes(b"old")
+    (tmp_path / "000001.resp").write_bytes(b"old")
     ra = rawsave.RawSave(directory=str(tmp_path))
     with taddons.context(ra):
         f = tflow.tflow(resp=True)
         ra.request(f)
         ra.response(f)
-    assert (tmp_path / "4.req").exists()
-    assert (tmp_path / "4.resp").exists()
+    assert (tmp_path / "000004.req").exists()
+    assert (tmp_path / "000004.resp").exists()
 
 
 def test_response_without_request(tmp_path):
@@ -143,7 +143,7 @@ def test_response_without_request(tmp_path):
         f = tflow.tflow(resp=True)
         ra.response(f)
     # response that arrives without a prior request hook still gets numbered
-    assert (tmp_path / "1.resp").exists()
+    assert (tmp_path / "000001.resp").exists()
 
 
 def test_no_response(tmp_path):
@@ -166,7 +166,7 @@ def test_response_body_is_decoded(tmp_path):
         assert f.response.raw_content != b"hello decoded world"
         ra.response(f)
 
-    resp = (tmp_path / "1.resp").read_bytes()
+    resp = (tmp_path / "000001.resp").read_bytes()
     head, _, body = resp.partition(b"\n\n")
     assert body == b"hello decoded world"
     # encoding header stripped, content-length matches the decoded body
@@ -183,7 +183,7 @@ def test_chunked_transfer_encoding_is_removed(tmp_path):
         f.response.headers["transfer-encoding"] = "chunked"
         ra.response(f)
 
-    head = (tmp_path / "1.resp").read_bytes().partition(b"\n\n")[0]
+    head = (tmp_path / "000001.resp").read_bytes().partition(b"\n\n")[0]
     assert b"transfer-encoding" not in head.lower()
     assert b"content-length:" in head.lower()
 
@@ -197,7 +197,7 @@ def test_undecodable_response_kept_as_is(tmp_path):
         f.response.raw_content = b"not-gzip"
         ra.response(f)
 
-    body = (tmp_path / "1.resp").read_bytes().partition(b"\n\n")[2]
+    body = (tmp_path / "000001.resp").read_bytes().partition(b"\n\n")[2]
     assert body == b"not-gzip"
 
 
@@ -209,8 +209,8 @@ def test_missing_content_falls_back_to_head(tmp_path):
         f.response.content = None
         ra.request(f)
         ra.response(f)
-    assert b"host:" in (tmp_path / "1.req").read_bytes()
-    assert (tmp_path / "1.resp").read_bytes().startswith(b"HTTP/")
+    assert b"host:" in (tmp_path / "000001.req").read_bytes()
+    assert (tmp_path / "000001.resp").read_bytes().startswith(b"HTTP/")
 
 
 def test_default_directory_is_history():
@@ -226,8 +226,8 @@ def test_creates_history_directory_on_write(tmp_path):
         ra.request(f)
         ra.response(f)
     assert history.is_dir()
-    assert (history / "1.req").exists()
-    assert (history / "1.resp").exists()
+    assert (history / "000001.req").exists()
+    assert (history / "000001.resp").exists()
 
 
 def test_uncreatable_directory_logs_error(tmp_path, caplog):
@@ -337,7 +337,7 @@ def test_connect_request_restores_authority_form(tmp_path):
 
 
 def test_restore_skips_corrupt_files(tmp_path, caplog):
-    (tmp_path / "1.req").write_bytes(b"not a valid req file")
+    (tmp_path / "000001.req").write_bytes(b"not a valid req file")
     ra = rawsave.RawSave(directory=str(tmp_path))
     assert ra._restored_flows() == []
     assert "Could not restore" in caplog.text
@@ -382,10 +382,10 @@ def test_req_path(tmp_path):
         # unknown flow -> no path
         assert ra.req_path(f) is None
         ra.request(f)
-        assert ra.req_path(f) == tmp_path / "1.req"
+        assert ra.req_path(f) == tmp_path / "000001.req"
 
     # number known but file removed -> None
-    (tmp_path / "1.req").unlink()
+    (tmp_path / "000001.req").unlink()
     assert ra.req_path(f) is None
 
 
@@ -398,4 +398,10 @@ def test_req_path_for_restored_flow(tmp_path):
 
     ra2 = rawsave.RawSave(directory=str(tmp_path))
     restored = ra2._restored_flows()[0]
-    assert ra2.req_path(restored) == tmp_path / "1.req"
+    assert ra2.req_path(restored) == tmp_path / "000001.req"
+
+
+def test_filename_zero_padding():
+    assert rawsave.RawSave._name(1, "req") == "000001.req"
+    assert rawsave.RawSave._name(42, "resp") == "000042.resp"
+    assert rawsave.RawSave._name(1234567, "req") == "1234567.req"
