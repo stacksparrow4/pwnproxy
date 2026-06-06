@@ -30,6 +30,10 @@ def test_request_and_response(tmp_path):
     assert resp.startswith(b"HTTP/")
     assert f.response.content in resp
 
+    # requests use bare \n line endings, never \r\n
+    assert b"\r\n" not in req
+    assert b"\r" not in req
+
 
 def test_counter_increments_per_flow(tmp_path):
     ra = rawsave.RawSave(directory=str(tmp_path))

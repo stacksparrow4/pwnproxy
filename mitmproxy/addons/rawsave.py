@@ -74,6 +74,8 @@ class RawSave:
         except ValueError:
             # Content may be missing (e.g. streamed); fall back to the head.
             raw = assemble.assemble_request_head(flow.request)
+        # Use bare \n line endings (technically not valid HTTP) as requested.
+        raw = raw.replace(b"\r\n", b"\n")
         self._write(f"{n}.req", self._metadata(flow) + raw)
 
     def save_response(self, flow: http.HTTPFlow) -> None:
