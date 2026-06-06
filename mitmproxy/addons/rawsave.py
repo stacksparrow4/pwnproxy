@@ -21,11 +21,12 @@ logger = logging.getLogger(__name__)
 class RawSave:
     """
     Persist every HTTP request and response to the current working directory
-    as numbered, zero-padded ``000001.req`` / ``000001.resp`` files.
+    as numbered, zero-padded ``000001.req`` / ``.000001.resp`` files.
 
     Request files are prefixed with a small ``---`` delimited metadata block
     describing the connection (host, port, protocol, sni) followed by the raw
-    HTTP request. Response files contain the raw HTTP response.
+    HTTP request. Response files contain the raw HTTP response and are stored
+    as hidden files (with a leading dot) alongside their request counterparts.
     """
 
     def __init__(self, directory: str = "history") -> None:
@@ -48,7 +49,7 @@ class RawSave:
 
     def _highest_existing_number(self) -> int:
         highest = 0
-        pattern = re.compile(r"^(\d+)\.(req|resp)$")
+        pattern = re.compile(r"^\.?(\d+)\.(req|resp)$")
         try:
             entries = list(self.directory.iterdir())
         except OSError:
@@ -61,7 +62,13 @@ class RawSave:
 
     @staticmethod
     def _name(n: int, suffix: str) -> str:
-        """Build a file name, zero-padded to six digits, e.g. ``000001.req``."""
+        """Build a file name, zero-padded to six digits, e.g. ``000001.req``.
+
+        Response files are prefixed with a dot (e.g. ``.000001.resp``) so they
+        are hidden files alongside their visible ``.req`` counterparts.
+        """
+        if suffix == "resp":
+            return f".{n:06d}.{suffix}"
         return f"{n:06d}.{suffix}"
 
     def _number_for(self, flow: http.HTTPFlow) -> int:
