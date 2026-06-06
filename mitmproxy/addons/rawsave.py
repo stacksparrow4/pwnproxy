@@ -348,12 +348,79 @@ class RawSave:
         state = "on" if self.intercept_response else "off"
         logging.log(ALERT, f"Response intercept: {state}")
 
-    def _edit_in_neovim(self, path: Path) -> bytes | None:
+    # Special intercept-only keys and their defaults. These are injected into
+    # the ``---`` block of the file opened in Neovim, but are never written to
+    # the on-disk .req/.resp/.orig files.
+    _INTERCEPT_KEYS: dict[str, bool] = {
+        "stop_intercepting": False,
+        "update_content_length": True,
+    }
+
+    def _inject_intercept_keys(self, content: bytes, has_metadata: bool) -> bytes:
+        block = "".join(
+            f"{k}: {str(v).lower()}\n" for k, v in self._INTERCEPT_KEYS.items()
+        ).encode()
+        if has_metadata:
+            # Requests already start with a "---" block; insert the keys into it.
+            _, rest = content.split(b"---\n", 1)
+            return b"---\n" + block + rest
+        # Responses have no "---" block on disk; add a temporary one.
+        return b"---\n" + block + b"---\n" + content
+
+    def _extract_intercept_keys(
+        self, content: bytes, has_metadata: bool
+    ) -> tuple[dict[str, bool], bytes]:
+        opts = dict(self._INTERCEPT_KEYS)
+        if not content.startswith(b"---\n"):
+            return opts, content
+        _, block, rest = content.split(b"---\n", 2)
+        kept = []
+        for line in block.splitlines():
+            key, sep, value = line.partition(b":")
+            name = key.strip().decode()
+            if name in self._INTERCEPT_KEYS:
+                opts[name] = value.strip().lower() == b"true"
+            else:
+                kept.append(line)
+        if has_metadata:
+            kept_block = b"\n".join(kept)
+            cleaned = (
+                b"---\n" + (kept_block + b"\n" if kept_block else b"") + b"---\n" + rest
+            )
+        else:
+            cleaned = rest
+        return opts, cleaned
+
+    @staticmethod
+    def _fix_content_length(content: bytes) -> bytes:
+        """Replace an existing Content-Length header with the actual body size."""
+        head, sep, body = content.partition(b"\n\n")
+        if not sep:
+            return content
+        lines = head.split(b"\n")
+        changed = False
+        for i, line in enumerate(lines):
+            key, colon, _ = line.partition(b":")
+            if colon and key.strip().lower() == b"content-length":
+                lines[i] = key + b": " + str(len(body)).encode()
+                changed = True
+        if not changed:
+            return content
+        return b"\n".join(lines) + b"\n\n" + body
+
+    def _run_intercept(
+        self, path: Path, has_metadata: bool
+    ) -> tuple[str, bytes | None] | None:
         """
-        Open ``path`` in Neovim and return the edited bytes. If the content was
-        changed, the original is preserved as ``<path>.orig``; an unmodified
-        file leaves no ``.orig`` behind. Returns None if editing is unavailable
-        or fails.
+        Open ``path`` in Neovim with the special intercept keys injected.
+
+        Returns one of:
+          * None - editing was unavailable or failed; do nothing.
+          * ("stop", None) - the user requested ``stop_intercepting``; edits are
+            discarded and the original file is restored.
+          * ("apply", cleaned) - the cleaned (keys-stripped) edited bytes, which
+            have been written to ``path`` (and the original to ``<path>.orig``
+            if it changed).
         """
         editor = getattr(ctx.master, "spawn_editor_file", None)
         if editor is None:
@@ -361,11 +428,19 @@ class RawSave:
             return None
         try:
             original = path.read_bytes()
+            path.write_bytes(self._inject_intercept_keys(original, has_metadata))
             editor(str(path))
             edited = path.read_bytes()
-            if edited != original:
+            opts, cleaned = self._extract_intercept_keys(edited, has_metadata)
+            if opts["stop_intercepting"]:
+                path.write_bytes(original)  # discard edits
+                return "stop", None
+            if opts["update_content_length"]:
+                cleaned = self._fix_content_length(cleaned)
+            path.write_bytes(cleaned)
+            if cleaned != original:
                 path.with_name(path.name + ".orig").write_bytes(original)
-            return edited
+            return "apply", cleaned
         except OSError as e:
             logger.error(f"Error while editing {path}: {e}")
             return None
@@ -374,11 +449,17 @@ class RawSave:
         path = self.req_path(flow)
         if path is None:
             return
-        edited = self._edit_in_neovim(path)
-        if edited is None:
+        result = self._run_intercept(path, has_metadata=True)
+        if result is None:
             return
+        action, cleaned = result
+        if action == "stop":
+            self.intercept_request = False
+            logging.log(ALERT, "Request intercept: off")
+            return
+        assert cleaned is not None
         try:
-            request, _ = self._parse_request_file(edited)
+            request, _ = self._parse_request_file(cleaned)
         except (ValueError, IndexError) as e:
             logger.error(f"Could not parse edited request: {e}")
             return
@@ -391,11 +472,17 @@ class RawSave:
         path = self.directory / self._name(n, "resp")
         if not path.exists():
             return
-        edited = self._edit_in_neovim(path)
-        if edited is None:
+        result = self._run_intercept(path, has_metadata=False)
+        if result is None:
             return
+        action, cleaned = result
+        if action == "stop":
+            self.intercept_response = False
+            logging.log(ALERT, "Response intercept: off")
+            return
+        assert cleaned is not None
         try:
-            flow.response = self._parse_response_file(edited)
+            flow.response = self._parse_response_file(cleaned)
         except (ValueError, IndexError) as e:
             logger.error(f"Could not parse edited response: {e}")
             return

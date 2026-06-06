@@ -590,7 +590,7 @@ def test_intercept_edit_io_error_logged(tmp_path, caplog):
             raise OSError("nope")
 
         tctx.master.spawn_editor_file = boom
-        assert ra._edit_in_neovim(path) is None
+        assert ra._run_intercept(path, has_metadata=True) is None
     assert "Error while editing" in caplog.text
 
 
@@ -640,3 +640,149 @@ def test_intercept_unmodified_no_orig(tmp_path):
         ra.request(f)
     assert (history / "000001.req").exists()
     assert not (history / "000001.req.orig").exists()
+
+
+def _capturing_editor(seen, transform=lambda b: b):
+    """Editor stub: records the opened content and writes back transform(content)."""
+    def editor(path):
+        data = Path(path).read_bytes()
+        seen.append(data)
+        Path(path).write_bytes(transform(data))
+    return editor
+
+
+def test_intercept_injects_keys_not_persisted(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        f.request.headers["Host"] = "example.com"
+        seen = []
+        tctx.master.spawn_editor_file = _capturing_editor(seen)  # identity edit
+        ra.intercept_toggle()
+        ra.request(f)
+
+    # the file opened in Neovim contains the special keys inside the --- block
+    assert seen[0].startswith(b"---\n")
+    assert b"stop_intercepting: false" in seen[0]
+    assert b"update_content_length: true" in seen[0]
+
+    # ... but the persisted .req does not, and an unmodified edit leaves no .orig
+    saved = (history / "000001.req").read_bytes()
+    assert b"stop_intercepting" not in saved
+    assert b"update_content_length" not in saved
+    assert not (history / "000001.req.orig").exists()
+
+
+def test_intercept_response_gets_metadata_section(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow(resp=True)
+        seen = []
+        tctx.master.spawn_editor_file = _capturing_editor(seen)
+        ra.request(f)
+        ra.intercept_response_toggle()
+        ra.response(f)
+
+    # the response file shown in Neovim gets a --- block with the special keys
+    assert seen[0].startswith(b"---\n")
+    assert b"stop_intercepting: false" in seen[0]
+    # the saved .resp keeps neither the --- block nor the keys
+    saved = (history / "000001.resp").read_bytes()
+    assert not saved.startswith(b"---")
+    assert b"stop_intercepting" not in saved
+
+
+def test_stop_intercepting_discards_edits_and_disables(tmp_path, caplog):
+    import logging as _logging
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx, caplog.at_level(_logging.INFO):
+        f = tflow.tflow()
+        f.request.method = "GET"
+        f.request.headers["Host"] = "example.com"
+
+        def transform(data):
+            data = data.replace(b"stop_intercepting: false", b"stop_intercepting: true")
+            return data.replace(b"GET ", b"DELETE ")  # edit that must be ignored
+
+        tctx.master.spawn_editor_file = _capturing_editor([], transform)
+        ra.intercept_toggle()
+        assert ra.intercept_request is True
+        ra.request(f)
+
+    # edits ignored: the flow forwards unchanged
+    assert f.request.method == "GET"
+    # intercept mode turned off
+    assert ra.intercept_request is False
+    assert "Request intercept: off" in caplog.text
+    # the original file is left intact, with no .orig
+    assert not (history / "000001.req.orig").exists()
+    assert b"DELETE" not in (history / "000001.req").read_bytes()
+
+
+def test_update_content_length_true_corrects(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        assert "content-length" in f.request.headers  # tflow default has one
+
+        def transform(data):
+            head, _, _ = data.partition(b"\n\n")
+            return head + b"\n\nlongerbody"
+
+        tctx.master.spawn_editor_file = _capturing_editor([], transform)
+        ra.intercept_toggle()
+        ra.request(f)
+
+    assert f.request.content == b"longerbody"
+    assert f.request.headers["content-length"] == str(len(b"longerbody"))
+
+
+def test_update_content_length_false_preserves(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        original_cl = f.request.headers["content-length"]
+
+        def transform(data):
+            data = data.replace(
+                b"update_content_length: true", b"update_content_length: false"
+            )
+            head, _, _ = data.partition(b"\n\n")
+            return head + b"\n\nlongerbody"
+
+        tctx.master.spawn_editor_file = _capturing_editor([], transform)
+        ra.intercept_toggle()
+        ra.request(f)
+
+    assert f.request.content == b"longerbody"
+    # content-length left as the (now incorrect) edited value
+    assert f.request.headers["content-length"] == original_cl
+
+
+def test_stop_intercepting_response_disables(tmp_path, caplog):
+    import logging as _logging
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx, caplog.at_level(_logging.INFO):
+        f = tflow.tflow(resp=True)
+        original_status = f.response.status_code
+
+        def transform(data):
+            data = data.replace(b"stop_intercepting: false", b"stop_intercepting: true")
+            return data.replace(b"200", b"500")  # edit that must be ignored
+
+        tctx.master.spawn_editor_file = _capturing_editor([], transform)
+        ra.request(f)
+        ra.intercept_response_toggle()
+        assert ra.intercept_response is True
+        ra.response(f)
+
+    assert f.response.status_code == original_status
+    assert ra.intercept_response is False
+    assert "Response intercept: off" in caplog.text
+    assert not (history / "000001.resp.orig").exists()
