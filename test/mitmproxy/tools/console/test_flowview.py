@@ -13,28 +13,21 @@ async def test_flowview(console):
         console.type("<enter><tab><tab>")
 
 
-def _edit(data: str) -> str:
-    assert data == "hello: true\n"
-    return "hello: false"
-
-
 async def test_edit(console, monkeypatch, caplog):
-    MSGPACK_WITH_TRUE = b"\x81\xa5hello\xc3"
-    MSGPACK_WITH_FALSE = b"\x81\xa5hello\xc2"
     f = tflow.tflow(
-        req=http.Request.make(
-            "POST",
-            "http://example.com",
-            MSGPACK_WITH_TRUE,
-            headers={"Content-Type": "application/msgpack"},
-        )
+        req=http.Request.make("POST", "http://example.com", b"data"),
     )
     await console.load_flow(f)
-    monkeypatch.setattr(console, "spawn_editor", _edit)
 
-    console.type(':console.edit.focus "request-body (MsgPack)"<enter><enter>')
-    assert "hello: false" in console.screen_contents()
-    assert f.request.content == MSGPACK_WITH_FALSE
+    opened = []
+    monkeypatch.setattr(console, "spawn_editor_file", lambda path: opened.append(path))
+
+    # console.edit.focus now opens the flow's saved .req file in Neovim.
+    rawsave = console.addons.get("rawsave")
+    monkeypatch.setattr(rawsave, "req_path", lambda flow: "/tmp/1.req")
+
+    console.type(":console.edit.focus<enter>")
+    assert opened == ["/tmp/1.req"]
 
 
 async def test_content_missing_returns_error(console):

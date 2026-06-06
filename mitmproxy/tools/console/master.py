@@ -154,6 +154,15 @@ class ConsoleMaster(master.Master):
         os.unlink(name)
         return data
 
+    def spawn_editor_file(self, path: str) -> None:
+        """Open an existing file in Neovim."""
+        cmd = ["nvim", path]
+        with self.uistopped():
+            try:
+                subprocess.call(cmd)
+            except Exception:
+                signals.status_message.send(message="Can't start Neovim (nvim).")
+
     def spawn_external_viewer(self, data, contenttype):
         if contenttype:
             contenttype = contenttype.split(";")[0]

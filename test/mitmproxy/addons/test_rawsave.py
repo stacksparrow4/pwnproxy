@@ -354,3 +354,29 @@ async def test_running_schedules_restore(tmp_path):
         ra2.running()
         await asyncio.sleep(0.01)
     assert len(loaded) == 1
+
+
+def test_req_path(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        # unknown flow -> no path
+        assert ra.req_path(f) is None
+        ra.request(f)
+        assert ra.req_path(f) == tmp_path / "1.req"
+
+    # number known but file removed -> None
+    (tmp_path / "1.req").unlink()
+    assert ra.req_path(f) is None
+
+
+def test_req_path_for_restored_flow(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        ra.request(f)
+        ra.response(f)
+
+    ra2 = rawsave.RawSave(directory=str(tmp_path))
+    restored = ra2._restored_flows()[0]
+    assert ra2.req_path(restored) == tmp_path / "1.req"

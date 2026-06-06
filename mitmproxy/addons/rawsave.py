@@ -267,8 +267,19 @@ class RawSave:
                 logger.warning(f"Could not restore {n}.req: {e}")
                 continue
             self.restored_ids.add(flow.id)
+            self.flow_numbers[flow.id] = n
             flows.append(flow)
         return flows
+
+    def req_path(self, flow: http.HTTPFlow) -> Path | None:
+        """Return the path of the ``.req`` file for ``flow``, if it exists."""
+        n = self.flow_numbers.get(flow.id)
+        if n is None:
+            return None
+        path = self.directory / f"{n}.req"
+        if not path.exists():
+            return None
+        return path
 
     async def restore(self) -> None:
         for flow in self._restored_flows():

@@ -1,6 +1,5 @@
 import csv
 import logging
-import re
 from collections.abc import Sequence
 
 import mitmproxy.types
@@ -462,107 +461,22 @@ class ConsoleAddon:
         return focus_options
 
     @command.command("console.edit.focus")
-    @command.argument(
-        "flow_part", type=mitmproxy.types.Choice("console.edit.focus.options")
-    )
-    def edit_focus(self, flow_part: str) -> None:
+    def edit_focus(self) -> None:
         """
-        Edit a component of the currently focused flow.
+        Edit the currently focused flow by opening its saved ``.req`` file in
+        Neovim.
         """
         flow = self.master.view.focus.flow
-        # This shouldn't be necessary once this command is "console.edit @focus",
-        # but for now it is.
         if not flow:
             raise exceptions.CommandError("No flow selected.")
-        flow.backup()
 
-        require_dummy_response = (
-            flow_part in ("response-headers", "response-body", "set-cookies")
-            and flow.response is None
-        )
-        if require_dummy_response:
-            flow.response = http.Response.make()
-        if flow_part == "comment":
-            self.master.switch_view("edit_focus_comment")
-        elif flow_part == "cookies":
-            self.master.switch_view("edit_focus_cookies")
-        elif flow_part == "urlencoded form":
-            self.master.switch_view("edit_focus_urlencoded_form")
-        elif flow_part == "multipart form":
-            self.master.switch_view("edit_focus_multipart_form")
-        elif flow_part == "path":
-            self.master.switch_view("edit_focus_path")
-        elif flow_part == "query":
-            self.master.switch_view("edit_focus_query")
-        elif flow_part == "request-headers":
-            self.master.switch_view("edit_focus_request_headers")
-        elif flow_part == "response-headers":
-            self.master.switch_view("edit_focus_response_headers")
-        elif m := re.match(
-            r"(?P<message>(request|response)-body|(tcp|udp|websocket)-message) \((?P<contentview>.+)\)",
-            flow_part,
-        ):
-            match m["message"]:
-                case "request-body":
-                    message = flow.request
-                case "response-body":
-                    message = flow.response
-                case "tcp-message" | "udp-message":
-                    message = flow.messages[-1]
-                case "websocket-message":
-                    message = flow.websocket.messages[-1]
-                case _:
-                    assert False, "should be exhaustive"
-
-            cv = contentviews.registry.get(m["contentview"])
-            if not cv or not isinstance(cv, contentviews.InteractiveContentview):
-                raise CommandError(
-                    f"Contentview {m['contentview']} is not bidirectional."
-                )
-
-            pretty = contentviews.prettify_message(message, flow, cv.name)
-            prettified = self.master.spawn_editor(pretty.text)
-
-            message.content = contentviews.reencode_message(
-                prettified,
-                message,
-                flow,
-                cv.name,
+        rawsave = self.master.addons.get("rawsave")
+        path = rawsave.req_path(flow) if rawsave else None
+        if path is None:
+            raise exceptions.CommandError(
+                "No saved request file for this flow."
             )
-
-        elif flow_part in ("request-body", "response-body"):
-            if flow_part == "request-body":
-                message = flow.request
-            else:
-                message = flow.response
-            c = self.master.spawn_editor(message.get_content(strict=False) or b"")
-            # Many editors make it hard to save a file without a terminating
-            # newline on the last line. When editing message bodies, this can
-            # cause problems. We strip trailing newlines by default, but this
-            # behavior is configurable.
-            if self.master.options.console_strip_trailing_newlines:
-                c = c.rstrip(b"\n")
-            message.content = c
-        elif flow_part == "set-cookies":
-            self.master.switch_view("edit_focus_setcookies")
-        elif flow_part == "url":
-            url = flow.request.url.encode()
-            edited_url = self.master.spawn_editor(url)
-            url = edited_url.rstrip(b"\n")
-            flow.request.url = url.decode()
-        elif flow_part in ["method", "status_code", "reason"]:
-            self.master.commands.call_strings(
-                "console.command", ["flow.set", "@focus", flow_part]
-            )
-        elif flow_part in ["tcp-message", "udp-message", "websocket-message"]:
-            if flow_part == "websocket-message":
-                message = flow.websocket.messages[-1]
-            else:
-                message = flow.messages[-1]
-            c = self.master.spawn_editor(message.content or b"")
-            if self.master.options.console_strip_trailing_newlines:
-                c = c.rstrip(b"\n")
-            message.content = c.rstrip(b"\n")
+        self.master.spawn_editor_file(str(path))
 
     def _grideditor(self):
         gewidget = self.master.window.current("grideditor")

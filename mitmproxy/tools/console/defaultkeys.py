@@ -166,12 +166,9 @@ def map(km: Keymap) -> None:
 
     km.add(
         "e",
-        """
-        console.choose.cmd "Edit..." console.edit.focus.options
-        console.edit.focus {choice}
-        """,
+        "console.edit.focus",
         ["flowlist", "flowview"],
-        "Edit a flow component",
+        "Edit the flow's request file in Neovim",
     )
     km.add(
         "f",
