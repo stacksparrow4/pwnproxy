@@ -241,16 +241,17 @@ def test_filter_persistence(tmp_path, monkeypatch):
         v.set_filter(None)
         assert filter_file.read_text() == ""
 
-    # On startup, the persisted filter is loaded into the option and applied.
-    filter_file.write_text("~m put")
-    v2 = view.View()
-    with taddons.context(v2):
-        v2.requestheaders(tft(method="get"))
-        v2.requestheaders(tft(method="put"))
-        assert len(v2) == 2
-        v2.running()
+        # On startup, the persisted filter is loaded into the option and applied.
+        # Reset the option first so _load_filter does not treat the previously
+        # configured filter as an explicitly provided one.
+        tctx.configure(v, view_filter=None)
+        filter_file.write_text("~m put")
+        v.requestheaders(tft(method="get"))
+        v.requestheaders(tft(method="put"))
+        assert len(v) == 2
+        v.running()
         assert ctx.options.view_filter == "~m put"
-        assert [i.request.method for i in v2] == ["PUT"]
+        assert [i.request.method for i in v] == ["PUT"]
 
 
 def test_filter_persistence_explicit_wins(tmp_path, monkeypatch):
