@@ -1,5 +1,6 @@
 import pytest
 
+from mitmproxy import ctx
 from mitmproxy import exceptions
 from mitmproxy import flowfilter
 from mitmproxy import io
@@ -220,6 +221,75 @@ def test_filter():
     assert v[0].marked
     v.toggle_marked()
     assert len(v) == 4
+
+
+def test_filter_persistence(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    filter_file = tmp_path / view.VIEW_FILTER_FILE
+
+    v = view.View()
+    with taddons.context(v) as tctx:
+        # Setting a filter persists it.
+        v.set_filter_cmd("~m get")
+        assert filter_file.read_text() == "~m get"
+
+        # Setting via the option persists it too.
+        tctx.configure(v, view_filter="~m put")
+        assert filter_file.read_text() == "~m put"
+
+        # Clearing the filter persists an empty file.
+        v.set_filter(None)
+        assert filter_file.read_text() == ""
+
+    # On startup, the persisted filter is loaded into the option and applied.
+    filter_file.write_text("~m put")
+    v2 = view.View()
+    with taddons.context(v2):
+        v2.requestheaders(tft(method="get"))
+        v2.requestheaders(tft(method="put"))
+        assert len(v2) == 2
+        v2.running()
+        assert ctx.options.view_filter == "~m put"
+        assert [i.request.method for i in v2] == ["PUT"]
+
+
+def test_filter_persistence_explicit_wins(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / view.VIEW_FILTER_FILE).write_text("~m put")
+
+    v = view.View()
+    with taddons.context(v) as tctx:
+        # An explicitly provided filter takes precedence over the persisted one.
+        tctx.configure(v, view_filter="~m get")
+        v.requestheaders(tft(method="get"))
+        v.requestheaders(tft(method="put"))
+        v.running()
+        assert ctx.options.view_filter == "~m get"
+        assert [i.request.method for i in v] == ["GET"]
+
+
+def test_filter_persistence_invalid(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / view.VIEW_FILTER_FILE).write_text("~notafilter regex")
+
+    v = view.View()
+    with taddons.context(v):
+        v.requestheaders(tft(method="get"))
+        # An invalid persisted filter is ignored, not raised.
+        v.running()
+        assert ctx.options.view_filter is None
+        assert len(v) == 1
+
+
+def test_filter_persistence_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    v = view.View()
+    with taddons.context(v):
+        v.requestheaders(tft(method="get"))
+        # No file present: running() is a no-op.
+        v.running()
+        assert ctx.options.view_filter is None
+        assert len(v) == 1
 
 
 def tdump(path, flows):

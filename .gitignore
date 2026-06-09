@@ -37,3 +37,5 @@ web/coverage/
 *.resp
 *.req.orig
 *.resp.orig
+view-filter.txt
+.box-venv/

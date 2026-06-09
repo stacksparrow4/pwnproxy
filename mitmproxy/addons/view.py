@@ -11,6 +11,7 @@ The View:
 
 import collections
 import logging
+import os
 import re
 from collections.abc import Iterator
 from collections.abc import MutableMapping
@@ -35,6 +36,9 @@ from mitmproxy import udp
 from mitmproxy.log import ALERT
 from mitmproxy.utils import human
 from mitmproxy.utils import signals
+
+# File used to persist the current view filter across restarts.
+VIEW_FILTER_FILE = "view-filter.txt"
 
 # The underlying sorted list implementation expects the sort key to be stable
 # for the lifetime of the object. However, if we sort by size, for instance,
@@ -357,6 +361,45 @@ class View(collections.abc.Sequence):
     def set_filter(self, flt: flowfilter.TFilter | None):
         self.filter = flt or flowfilter.match_all
         self._refilter()
+        self._save_filter()
+
+    def _save_filter(self) -> None:
+        """Persist the current view filter to VIEW_FILTER_FILE."""
+        if self.filter is flowfilter.match_all:
+            expr = ""
+        else:
+            expr = getattr(self.filter, "pattern", "")
+        try:
+            with open(VIEW_FILTER_FILE, "w") as f:
+                f.write(expr)
+        except OSError as e:
+            logging.warning(f"Failed to persist view filter: {e}")
+
+    def _load_filter(self) -> None:
+        """Load the persisted view filter from VIEW_FILTER_FILE, if present."""
+        # An explicitly provided view_filter (e.g. via the command line) takes
+        # precedence over the persisted one.
+        if ctx.options.view_filter:
+            return
+        if not os.path.isfile(VIEW_FILTER_FILE):
+            return
+        try:
+            with open(VIEW_FILTER_FILE) as f:
+                expr = f.read().strip()
+        except OSError as e:
+            logging.warning(f"Failed to load view filter: {e}")
+            return
+        if not expr:
+            return
+        try:
+            flowfilter.parse(expr)
+        except ValueError as e:
+            logging.warning(f"Invalid persisted view filter: {e}")
+            return
+        # Update the option so that the whole application (status bar, configure
+        # handlers, ...) stays in sync. This in turn triggers configure(), which
+        # applies the filter via set_filter().
+        ctx.options.update(view_filter=expr)
 
     # View Updates
     @command.command("view.clear")
@@ -563,6 +606,9 @@ class View(collections.abc.Sequence):
         return 0 <= index < len(self)
 
     # Event handlers
+    def running(self):
+        self._load_filter()
+
     def configure(self, updated):
         if "view_filter" in updated:
             filt = None
