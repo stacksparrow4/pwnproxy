@@ -6,7 +6,7 @@ class AntiCache:
         loader.add_option(
             "anticache",
             bool,
-            False,
+            True,
             """
             Strip out request headers that might cause the server to return
             304-not-modified.
