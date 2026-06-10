@@ -939,6 +939,261 @@ def test_upstream_proxy(tctx, redirect, domain, scheme):
     assert playbook
 
 
+@pytest.mark.parametrize("scheme", ["http", "https"])
+@pytest.mark.parametrize("auth", [False, True])
+def test_upstream_proxy_socks5(tctx, scheme, auth):
+    """Test that an upstream SOCKS5 proxy is used."""
+    from mitmproxy.addons import upstream_auth as upstream_auth_addon
+
+    server = Placeholder(Server)
+    tctx.client.proxy_mode = ProxyMode.parse("upstream:socks5://socks-proxy:1080")
+    playbook = Playbook(http.HttpLayer(tctx, HTTPMode.upstream), hooks=False)
+
+    if auth:
+        upstream_auth_addon.UpstreamAuth().load(tctx.options)
+        tctx.options.update(upstream_auth="user:password")
+        greeting = b"\x05\x02\x00\x02"
+        method_selection = b"\x05\x02"
+        # username/password authentication subnegotiation
+        socks_auth = b"\x01\x04user\x08password"
+        auth_response = b"\x01\x00"
+    else:
+        greeting = b"\x05\x01\x00"
+        method_selection = b"\x05\x00"
+        socks_auth = b""
+        auth_response = b""
+
+    port = b"\x00\x50" if scheme == "http" else b"\x01\xbb"
+    connect_request = b"\x05\x01\x00\x03\x0bexample.com" + port
+    connect_reply = b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+
+    if scheme == "http":
+        playbook >> DataReceived(
+            tctx.client,
+            b"GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
+        playbook << OpenConnection(server)
+        playbook >> reply(None)
+    else:
+        playbook >> DataReceived(
+            tctx.client,
+            b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n",
+        )
+        playbook << SendData(
+            tctx.client, b"HTTP/1.1 200 Connection established\r\n\r\n"
+        )
+        playbook >> DataReceived(
+            tctx.client, b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        )
+        playbook << layer.NextLayerHook(Placeholder())
+        playbook >> reply_next_layer(
+            lambda ctx: http.HttpLayer(ctx, HTTPMode.transparent)
+        )
+        playbook << OpenConnection(server)
+        playbook >> reply(None)
+
+    # SOCKS5 handshake
+    playbook << SendData(server, greeting)
+    playbook >> DataReceived(server, method_selection)
+    if auth:
+        playbook << SendData(server, socks_auth)
+        playbook >> DataReceived(server, auth_response)
+    playbook << SendData(server, connect_request)
+    playbook >> DataReceived(server, connect_reply)
+
+    # the request is tunneled directly to the target server in origin-form
+    playbook << SendData(server, b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+    playbook >> DataReceived(server, b"HTTP/1.1 418 OK\r\nContent-Length: 0\r\n\r\n")
+    playbook << SendData(tctx.client, b"HTTP/1.1 418 OK\r\nContent-Length: 0\r\n\r\n")
+
+    assert playbook
+    assert server().address == ("socks-proxy", 1080)
+
+
+@pytest.mark.parametrize(
+    "url_host,connect_request",
+    [
+        ("10.0.0.1", b"\x05\x01\x00\x01\x0a\x00\x00\x01\x00\x50"),
+        (
+            "[2001:db8::1]",
+            b"\x05\x01\x00\x04" + b"\x20\x01\x0d\xb8" + b"\x00" * 11 + b"\x01\x00\x50",
+        ),
+    ],
+)
+def test_upstream_proxy_socks5_address_types(tctx, url_host, connect_request):
+    """SOCKS5 connect requests encode IPv4/IPv6 target addresses."""
+    server = Placeholder(Server)
+    tctx.client.proxy_mode = ProxyMode.parse("upstream:socks5://socks-proxy:1080")
+    playbook = Playbook(http.HttpLayer(tctx, HTTPMode.upstream), hooks=False)
+
+    host = url_host.encode()
+    assert (
+        playbook
+        >> DataReceived(
+            tctx.client,
+            b"GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n" % (host, host),
+        )
+        << OpenConnection(server)
+        >> reply(None)
+        << SendData(server, b"\x05\x01\x00")
+        # fragmented method selection to exercise incremental parsing
+        >> DataReceived(server, b"\x05")
+        >> DataReceived(server, b"\x00")
+        << SendData(server, connect_request)
+        # fragmented connect reply
+        >> DataReceived(server, b"\x05\x00\x00")
+        >> DataReceived(server, b"\x01\x00\x00\x00\x00\x00\x00")
+        << SendData(server, b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % host)
+        >> DataReceived(server, b"HTTP/1.1 418 OK\r\nContent-Length: 0\r\n\r\n")
+        << SendData(tctx.client, b"HTTP/1.1 418 OK\r\nContent-Length: 0\r\n\r\n")
+    )
+
+
+@pytest.mark.parametrize(
+    "connect_reply",
+    [
+        # bound address as IPv6 (atyp 0x04)
+        [b"\x05\x00\x00\x04\x00", b"\x00" * 15 + b"\x00\x00"],
+        # bound address as domain name (atyp 0x03), fragmented after atyp
+        [b"\x05\x00\x00\x03", b"\x04host\x00\x00"],
+    ],
+)
+def test_upstream_proxy_socks5_reply_address_types(tctx, connect_reply):
+    """SOCKS5 connect replies with IPv6/domain bound addresses are parsed."""
+    server = Placeholder(Server)
+    tctx.client.proxy_mode = ProxyMode.parse("upstream:socks5://socks-proxy:1080")
+    playbook = Playbook(http.HttpLayer(tctx, HTTPMode.upstream), hooks=False)
+
+    playbook >> DataReceived(
+        tctx.client,
+        b"GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n",
+    )
+    playbook << OpenConnection(server)
+    playbook >> reply(None)
+    playbook << SendData(server, b"\x05\x01\x00")
+    playbook >> DataReceived(server, b"\x05\x00")
+    playbook << SendData(server, b"\x05\x01\x00\x03\x0bexample.com\x00\x50")
+    for fragment in connect_reply:
+        playbook >> DataReceived(server, fragment)
+    playbook << SendData(server, b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+    playbook >> DataReceived(server, b"HTTP/1.1 418 OK\r\nContent-Length: 0\r\n\r\n")
+    playbook << SendData(tctx.client, b"HTTP/1.1 418 OK\r\nContent-Length: 0\r\n\r\n")
+    assert playbook
+
+
+def test_upstream_proxy_socks5_leftover_data(tctx):
+    """Data piggybacked on the SOCKS5 connect reply is forwarded to the child layer."""
+    server = Placeholder(Server)
+    tctx.client.proxy_mode = ProxyMode.parse("upstream:socks5://socks-proxy:1080")
+    playbook = Playbook(http.HttpLayer(tctx, HTTPMode.upstream), hooks=False)
+
+    assert (
+        playbook
+        >> DataReceived(
+            tctx.client,
+            b"GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
+        << OpenConnection(server)
+        >> reply(None)
+        << SendData(server, b"\x05\x01\x00")
+        >> DataReceived(server, b"\x05\x00")
+        << SendData(server, b"\x05\x01\x00\x03\x0bexample.com\x00\x50")
+        # connect reply with extra data appended in the same packet
+        >> DataReceived(
+            server,
+            b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+            b"HTTP/1.1 418 OK\r\nContent-Length: 0\r\n\r\n",
+        )
+        << SendData(server, b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        << SendData(tctx.client, b"HTTP/1.1 418 OK\r\nContent-Length: 0\r\n\r\n")
+    )
+
+
+@pytest.mark.parametrize(
+    "response,error",
+    [
+        (b"\x04\x00", "Invalid SOCKS version"),
+        (b"\x05\xff", "did not accept an authentication method"),
+        (b"\x05\x00\x00\x09\x00\x00\x00\x00\x00\x00", "unknown"),
+    ],
+)
+def test_upstream_proxy_socks5_handshake_errors(tctx, response, error):
+    """Malformed SOCKS5 handshake responses abort the connection."""
+    server = Placeholder(Server)
+    tctx.client.proxy_mode = ProxyMode.parse("upstream:socks5://socks-proxy:1080")
+    playbook = Playbook(http.HttpLayer(tctx, HTTPMode.upstream), hooks=False)
+
+    playbook >> DataReceived(
+        tctx.client,
+        b"GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n",
+    )
+    playbook << OpenConnection(server)
+    playbook >> reply(None)
+    playbook << SendData(server, b"\x05\x01\x00")
+    if response.startswith(b"\x05\x00"):
+        # valid greeting + connect request, error is in the connect reply
+        playbook >> DataReceived(server, b"\x05\x00")
+        playbook << SendData(server, b"\x05\x01\x00\x03\x0bexample.com\x00\x50")
+    playbook >> DataReceived(server, response)
+    playbook << CloseConnection(server)
+    playbook << SendData(tctx.client, BytesMatching(b"502 Bad Gateway"))
+    playbook << CloseConnection(tctx.client)
+    assert playbook
+
+
+def test_upstream_proxy_socks5_auth_failed(tctx):
+    """A failed SOCKS5 username/password authentication aborts the connection."""
+    from mitmproxy.addons import upstream_auth as upstream_auth_addon
+
+    server = Placeholder(Server)
+    tctx.client.proxy_mode = ProxyMode.parse("upstream:socks5://socks-proxy:1080")
+    upstream_auth_addon.UpstreamAuth().load(tctx.options)
+    tctx.options.update(upstream_auth="user:password")
+    playbook = Playbook(http.HttpLayer(tctx, HTTPMode.upstream), hooks=False)
+
+    assert (
+        playbook
+        >> DataReceived(
+            tctx.client,
+            b"GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
+        << OpenConnection(server)
+        >> reply(None)
+        << SendData(server, b"\x05\x02\x00\x02")
+        >> DataReceived(server, b"\x05\x02")
+        << SendData(server, b"\x01\x04user\x08password")
+        >> DataReceived(server, b"\x01\x01")  # auth failure
+        << CloseConnection(server)
+        << SendData(tctx.client, BytesMatching(b"502 Bad Gateway"))
+        << CloseConnection(tctx.client)
+    )
+
+
+def test_upstream_proxy_socks5_refused(tctx):
+    """An upstream SOCKS5 proxy that refuses the connection yields an error."""
+    server = Placeholder(Server)
+    tctx.client.proxy_mode = ProxyMode.parse("upstream:socks5://socks-proxy:1080")
+    playbook = Playbook(http.HttpLayer(tctx, HTTPMode.upstream), hooks=False)
+
+    assert (
+        playbook
+        >> DataReceived(
+            tctx.client,
+            b"GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
+        << OpenConnection(server)
+        >> reply(None)
+        << SendData(server, b"\x05\x01\x00")
+        >> DataReceived(server, b"\x05\x00")
+        << SendData(server, b"\x05\x01\x00\x03\x0bexample.com\x00\x50")
+        # 0x05 == connection refused
+        >> DataReceived(server, b"\x05\x05\x00\x01\x00\x00\x00\x00\x00\x00")
+        << CloseConnection(server)
+        << SendData(tctx.client, BytesMatching(b"502 Bad Gateway"))
+        << CloseConnection(tctx.client)
+    )
+
+
 @pytest.mark.parametrize("mode", ["regular", "upstream"])
 @pytest.mark.parametrize("close_first", ["client", "server"])
 def test_http_proxy_tcp(tctx, mode, close_first):

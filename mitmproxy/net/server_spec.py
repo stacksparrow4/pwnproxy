@@ -9,7 +9,18 @@ from typing import Literal
 from mitmproxy.net import check
 
 ServerSpec = tuple[
-    Literal["http", "https", "http3", "tls", "dtls", "tcp", "udp", "dns", "quic"],
+    Literal[
+        "http",
+        "https",
+        "http3",
+        "tls",
+        "dtls",
+        "tcp",
+        "udp",
+        "dns",
+        "quic",
+        "socks5",
+    ],
     tuple[str, int],
 ]
 
@@ -56,6 +67,7 @@ def parse(server_spec: str, default_scheme: str) -> ServerSpec:
         "udp",
         "dns",
         "quic",
+        "socks5",
     ):
         raise ValueError(f"Invalid server scheme: {scheme}")
 
@@ -76,6 +88,7 @@ def parse(server_spec: str, default_scheme: str) -> ServerSpec:
                 "quic": 443,
                 "http3": 443,
                 "dns": 53,
+                "socks5": 1080,
             }[scheme]
         except KeyError:
             raise ValueError(f"Port specification missing.")

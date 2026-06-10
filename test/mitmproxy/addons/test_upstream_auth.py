@@ -50,3 +50,16 @@ def test_simple():
         f.client_conn.proxy_mode = ProxyMode.parse("reverse:127.0.0.1")
         up.requestheaders(f)
         assert "authorization" in f.request.headers
+
+
+def test_socks5_upstream():
+    """SOCKS5 upstream auth is handled during the handshake, not via headers."""
+    up = upstream_auth.UpstreamAuth()
+    with taddons.context(up) as tctx:
+        tctx.configure(up, upstream_auth="foo:bar")
+
+        f = tflow.tflow()
+        f.request.scheme = "http"
+        f.client_conn.proxy_mode = ProxyMode.parse("upstream:socks5://127.0.0.1")
+        up.requestheaders(f)
+        assert "proxy-authorization" not in f.request.headers

@@ -205,17 +205,17 @@ class TransparentMode(ProxyMode):
 
 
 class UpstreamMode(ProxyMode):
-    """A regular HTTP(S) proxy, but all connections are forwarded to a second upstream HTTP(S) proxy."""
+    """A regular HTTP(S) proxy, but all connections are forwarded to a second upstream HTTP(S) or SOCKS5 proxy."""
 
-    description = "HTTP(S) proxy (upstream mode)"
+    description = "HTTP(S)/SOCKS5 proxy (upstream mode)"
     transport_protocol = TCP
-    scheme: Literal["http", "https"]
+    scheme: Literal["http", "https", "socks5"]
     address: tuple[str, int]
 
     # noinspection PyDataclass
     def __post_init__(self) -> None:
         scheme, self.address = server_spec.parse(self.data, default_scheme="http")
-        if scheme != "http" and scheme != "https":
+        if scheme not in ("http", "https", "socks5"):
             raise ValueError("invalid upstream proxy scheme")
         self.scheme = scheme
 
@@ -232,7 +232,10 @@ class ReverseMode(ProxyMode):
 
     # noinspection PyDataclass
     def __post_init__(self) -> None:
-        self.scheme, self.address = server_spec.parse(self.data, default_scheme="https")
+        scheme, self.address = server_spec.parse(self.data, default_scheme="https")
+        if scheme == "socks5":
+            raise ValueError("reverse proxy to a SOCKS5 server is not supported")
+        self.scheme = scheme
         if self.scheme in ("http3", "dtls", "udp", "quic"):
             self.transport_protocol = UDP
         elif self.scheme in ("dns", "https"):

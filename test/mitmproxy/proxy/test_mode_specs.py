@@ -61,6 +61,8 @@ def test_parse_specific_modes():
     # assert ProxyMode.parse("http3")
     assert ProxyMode.parse("transparent")
     assert ProxyMode.parse("upstream:https://proxy")
+    assert ProxyMode.parse("upstream:socks5://proxy").scheme == "socks5"
+    assert ProxyMode.parse("upstream:socks5://proxy").address == ("proxy", 1080)
     assert ProxyMode.parse("reverse:https://host@443")
     assert ProxyMode.parse("reverse:http3://host@443")
     assert ProxyMode.parse("socks5")
@@ -86,6 +88,11 @@ def test_parse_specific_modes():
 
     with pytest.raises(ValueError, match="invalid upstream proxy scheme"):
         ProxyMode.parse("upstream:dns://example.com")
+
+    with pytest.raises(
+        ValueError, match="reverse proxy to a SOCKS5 server is not supported"
+    ):
+        ProxyMode.parse("reverse:socks5://example.com")
 
     with pytest.raises(ValueError, match="takes no arguments"):
         ProxyMode.parse("dns:invalid")

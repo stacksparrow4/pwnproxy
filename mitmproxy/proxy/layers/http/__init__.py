@@ -253,7 +253,15 @@ class HttpStream(layer.Layer):
                     "https" if self.context.client.tls else "http"
                 )
 
-        if self.mode is HTTPMode.regular and not (
+        proxy_mode = self.context.client.proxy_mode
+        # SOCKS5 upstream proxies tunnel directly to the target server, so plaintext
+        # HTTP requests must be sent in origin-form just like in regular proxy mode.
+        upstream_socks5 = (
+            self.mode is HTTPMode.upstream
+            and isinstance(proxy_mode, UpstreamMode)
+            and proxy_mode.scheme == "socks5"
+        )
+        if (self.mode is HTTPMode.regular or upstream_socks5) and not (
             self.flow.request.is_http2 or self.flow.request.is_http3
         ):
             # Set the request target to origin-form for HTTP/1, some servers don't support absolute-form requests.
@@ -800,7 +808,13 @@ class HttpStream(layer.Layer):
         yield from self.handle_connect_finish()
 
     def handle_connect_upstream(self):
-        self.child_layer = _upstream_proxy.HttpUpstreamProxy.make(self.context, True)[0]
+        assert self.context.server.via
+        if self.context.server.via[0] == "socks5":
+            self.child_layer = _upstream_proxy.Socks5UpstreamProxy.make(self.context)[0]
+        else:
+            self.child_layer = _upstream_proxy.HttpUpstreamProxy.make(
+                self.context, True
+            )[0]
         yield from self.handle_connect_finish()
 
     def handle_connect_finish(self):
@@ -1124,9 +1138,14 @@ class HttpLayer(layer.Layer):
 
             if event.via:
                 context.server.via = event.via
-                # We always send a CONNECT request, *except* for plaintext absolute-form HTTP requests in upstream mode.
-                send_connect = event.tls or self.mode != HTTPMode.upstream
-                stack /= _upstream_proxy.HttpUpstreamProxy.make(context, send_connect)
+                if event.via[0] == "socks5":
+                    stack /= _upstream_proxy.Socks5UpstreamProxy.make(context)
+                else:
+                    # We always send a CONNECT request, *except* for plaintext absolute-form HTTP requests in upstream mode.
+                    send_connect = event.tls or self.mode != HTTPMode.upstream
+                    stack /= _upstream_proxy.HttpUpstreamProxy.make(
+                        context, send_connect
+                    )
             if event.tls:
                 # Assume that we are in transparent mode and lazily did not open a connection yet.
                 # We don't want the IP (which is the address) as the upstream SNI, but the client's SNI instead.

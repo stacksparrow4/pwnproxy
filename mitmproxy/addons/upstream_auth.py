@@ -53,10 +53,14 @@ class UpstreamAuth:
 
     def requestheaders(self, f: http.HTTPFlow):
         if self.auth:
+            proxy_mode = f.client_conn.proxy_mode
             if (
-                isinstance(f.client_conn.proxy_mode, mode_specs.UpstreamMode)
+                isinstance(proxy_mode, mode_specs.UpstreamMode)
+                and proxy_mode.scheme in ("http", "https")
                 and f.request.scheme == "http"
             ):
+                # For SOCKS5 upstream proxies authentication is performed during the
+                # handshake, so we must not add a Proxy-Authorization header here.
                 f.request.headers["Proxy-Authorization"] = self.auth
-            elif isinstance(f.client_conn.proxy_mode, mode_specs.ReverseMode):
+            elif isinstance(proxy_mode, mode_specs.ReverseMode):
                 f.request.headers["Authorization"] = self.auth

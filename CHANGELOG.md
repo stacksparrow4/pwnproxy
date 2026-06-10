@@ -7,6 +7,9 @@
 
 ## Unreleased: mitmproxy next
 
+- Upstream mode now supports forwarding to an upstream SOCKS5 proxy, e.g.
+  `mitmdump --mode upstream:socks5://proxy:1080`. Authentication via
+  `--upstream-auth` is performed during the SOCKS5 handshake.
 - mitmproxy: `ctrl+d` and `ctrl+u` now page down/up, mirroring the existing
   `ctrl+f`/`ctrl+b` bindings (e.g. in the flow list and Request/Response views).
 - mitmproxy: Opening a flow now always starts on the first (Request) tab

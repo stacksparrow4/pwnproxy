@@ -429,6 +429,15 @@ proxy mode. You could in theory chain multiple mitmproxy instances in a
 row, but that doesn't make any sense in practice (i.e. outside of our
 tests).
 
+The upstream proxy may also be a SOCKS5 proxy:
+
+```shell
+mitmdump --mode upstream:socks5://example.com:1080
+```
+
+When `--upstream-auth` is set, the credentials are sent during the SOCKS5
+username/password handshake instead of as a `Proxy-Authorization` header.
+
 ## SOCKS Proxy
 
 ```shell
