@@ -32,6 +32,20 @@ async def test_flowview_tab_cycle(console):
     assert fd.tab_offset == n - 1
 
 
+async def test_flowview_resets_tab_on_open(console):
+    f = tflow.tflow()
+    await console.load_flow(f)
+    # Open the flow and switch to a different tab.
+    console.type("<enter><tab>")
+    fv = console.window.current("flowview")
+    fd = fv.body
+    assert fd.tab_offset == 1
+    # Leave the flowview and reopen the flow - it should reset to the first tab.
+    console.type("q")
+    console.type("<enter>")
+    assert fd.tab_offset == 0
+
+
 async def test_edit(console, monkeypatch, caplog):
     f = tflow.tflow(
         req=http.Request.make("POST", "http://example.com", b"data"),

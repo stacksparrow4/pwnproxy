@@ -495,3 +495,10 @@ class FlowView(urwid.Frame, layoutwidget.LayoutWidget):
     def focus_changed(self, *args, **kwargs):
         self.body.focus_changed()
         self.header.focus_changed()
+
+    def layout_pushed(self, prev):
+        # Always start on the first tab (e.g. the Request tab) when a flow is
+        # opened, rather than remembering the tab from a previous flowview.
+        # focus_changed() runs right afterwards and re-renders the tabs, so we
+        # only need to reset the offset here.
+        self.body.tab_offset = 0

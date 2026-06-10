@@ -7,6 +7,8 @@
 
 ## Unreleased: mitmproxy next
 
+- mitmproxy: Opening a flow now always starts on the first (Request) tab
+  instead of remembering the tab from the previously opened flow.
 - mitmproxy: `shift+tab` now cycles through the flow detail tabs in reverse,
   complementing the existing `tab` shortcut.
 - The current view filter is now persisted to `view-filter.txt` in the working
