@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 import mimetypes
 import os.path
 import shlex
@@ -59,6 +60,7 @@ class ConsoleMaster(master.Master):
         )
 
         self.window: window.Window | None = None
+        self._loop_started = False
 
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
@@ -100,15 +102,46 @@ class ConsoleMaster(master.Master):
 
         self.loop.set_alarm_in(seconds, cb)
 
+    def _ui_start(self) -> None:
+        """Start the urwid main loop, tolerating an already-running loop."""
+        if not self._loop_started:
+            self.loop.start()
+            self._loop_started = True
+
+    def _ui_stop(self) -> None:
+        """Stop the urwid main loop and restore the terminal.
+
+        ``urwid.MainLoop.stop()`` assumes the loop was fully started: it
+        unconditionally accesses ``self.idle_handle`` and unhooks the event
+        loop. If startup never completed (or the loop was already stopped)
+        this raises ``AttributeError`` and -- crucially -- leaves the terminal
+        in raw mode / the alternate buffer while the rest of the application
+        keeps running and redrawing. Guard against that so we always restore
+        the terminal exactly once and never crash.
+        """
+        if not self._loop_started:
+            return
+        self._loop_started = False
+        try:
+            self.loop.stop()
+        except Exception:
+            logging.debug("Error while stopping urwid loop", exc_info=True)
+            # Make sure the terminal is restored even if urwid's internal
+            # bookkeeping is inconsistent.
+            with contextlib.suppress(Exception):
+                if getattr(self.ui, "_started", False):
+                    self.ui.stop()
+
     @contextlib.contextmanager
     def uistopped(self):
-        self.loop.stop()
+        self._ui_stop()
         try:
             yield
         finally:
-            self.loop.start()
-            self.loop.screen_size = None
-            self.loop.draw_screen()
+            self._ui_start()
+            if self._loop_started:
+                self.loop.screen_size = None
+                self.loop.draw_screen()
 
     def get_editor(self) -> str:
         # based upon https://github.com/pallets/click/blob/main/src/click/_termui_impl.py
@@ -251,12 +284,12 @@ class ConsoleMaster(master.Master):
         self.loop.widget = self.window
         self.window.refresh()
 
-        self.loop.start()
+        self._ui_start()
 
         await super().running()
 
     async def done(self):
-        self.loop.stop()
+        self._ui_stop()
         await super().done()
 
     def overlay(self, widget, **kwargs):
