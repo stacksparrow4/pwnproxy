@@ -39,6 +39,7 @@ def map(km: Keymap) -> None:
     km.add("l", "console.nav.right", ["global"], "Right")
     km.add("h", "console.nav.left", ["global"], "Left")
     km.add("tab", "console.nav.next", ["commonkey", "global"], "Next")
+    km.add("shift tab", "console.nav.prev", ["flowview"], "Previous")
     km.add("enter", "console.nav.select", ["commonkey", "global"], "Select")
     km.add("space", "console.nav.pagedown", ["global"], "Page down")
     km.add("ctrl f", "console.nav.pagedown", ["global"], "Page down")

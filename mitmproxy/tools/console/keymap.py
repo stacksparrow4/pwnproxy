@@ -38,6 +38,7 @@ navkeys = [
     "m_start",
     "m_end",
     "m_next",
+    "m_prev",
     "m_select",
     "up",
     "down",

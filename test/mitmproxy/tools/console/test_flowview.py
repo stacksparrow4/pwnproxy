@@ -13,6 +13,25 @@ async def test_flowview(console):
         console.type("<enter><tab><tab>")
 
 
+async def test_flowview_tab_cycle(console):
+    f = tflow.tflow()
+    await console.load_flow(f)
+    console.type("<enter>")
+    fv = console.window.current("flowview")
+    fd = fv.body
+    assert isinstance(fd, FlowDetails)
+    n = len(fd.tabs)
+    assert fd.tab_offset == 0
+    # Tab cycles forward.
+    console.type("<tab>")
+    assert fd.tab_offset == 1
+    # Shift+Tab cycles backward, wrapping around.
+    console.type("<shift tab>")
+    assert fd.tab_offset == 0
+    console.type("<shift tab>")
+    assert fd.tab_offset == n - 1
+
+
 async def test_edit(console, monkeypatch, caplog):
     f = tflow.tflow(
         req=http.Request.make("POST", "http://example.com", b"data"),

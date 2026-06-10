@@ -34,6 +34,8 @@ class Tabs(urwid.WidgetWrap):
         n = len(self.tabs)
         if key == "m_next":
             self.change_tab((self.tab_offset + 1) % n)
+        elif key == "m_prev":
+            self.change_tab((self.tab_offset - 1) % n)
         elif key == "right":
             self.change_tab((self.tab_offset + 1) % n)
         elif key == "left":

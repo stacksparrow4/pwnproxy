@@ -178,6 +178,13 @@ class ConsoleAddon:
         """
         self.master.inject_key("m_next")
 
+    @command.command("console.nav.prev")
+    def nav_prev(self) -> None:
+        """
+        Go to the previous navigatable item.
+        """
+        self.master.inject_key("m_prev")
+
     @command.command("console.nav.select")
     def nav_select(self) -> None:
         """

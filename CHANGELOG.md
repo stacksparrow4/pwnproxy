@@ -7,6 +7,8 @@
 
 ## Unreleased: mitmproxy next
 
+- mitmproxy: `shift+tab` now cycles through the flow detail tabs in reverse,
+  complementing the existing `tab` shortcut.
 - The current view filter is now persisted to `view-filter.txt` in the working
   directory and restored on startup.
 - Fix contentview detection for XML files that start with CRLF.
