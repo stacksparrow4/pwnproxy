@@ -7,6 +7,8 @@
 
 ## Unreleased: mitmproxy next
 
+- mitmproxy: `ctrl+d` and `ctrl+u` now page down/up, mirroring the existing
+  `ctrl+f`/`ctrl+b` bindings (e.g. in the flow list and Request/Response views).
 - mitmproxy: Opening a flow now always starts on the first (Request) tab
   instead of remembering the tab from the previously opened flow.
 - mitmproxy: `shift+tab` now cycles through the flow detail tabs in reverse,
