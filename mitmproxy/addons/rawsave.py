@@ -373,6 +373,16 @@ class RawSave:
             return None
         return path
 
+    def resp_path(self, flow: http.HTTPFlow) -> Path | None:
+        """Return the path of the ``.resp`` file for ``flow``, if it exists."""
+        n = self.flow_numbers.get(flow.id)
+        if n is None:
+            return None
+        path = self.directory / self._name(n, "resp")
+        if not path.exists():
+            return None
+        return path
+
     # Burp-style interactive intercept
 
     @command.command("rawsave.intercept.toggle")

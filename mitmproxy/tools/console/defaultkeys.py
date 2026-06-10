@@ -135,6 +135,15 @@ def map(km: Keymap) -> None:
         "Set flow list order",
     )
     km.add("r", "rawsave.replay @focus", ["flowlist", "flowview"], "Replay this flow")
+    km.add(
+        "t",
+        """
+        console.choose.cmd "Run tool..." tools.options
+        tools.run {choice} @focus
+        """,
+        ["flowlist"],
+        "Run a tool on this flow",
+    )
     km.add("S", "console.command replay.server ", ["flowlist"], "Start server replay")
     km.add(
         "v", "set view_order_reversed toggle", ["flowlist"], "Reverse flow list order"

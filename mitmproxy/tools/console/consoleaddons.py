@@ -247,6 +247,9 @@ class ConsoleAddon:
         invoke another command with all occurrences of {choice} replaced by
         the choice the user made.
         """
+        if not choices:
+            logger.warning(f"{prompt}: no choices available.")
+            return
 
         def callback(opt):
             # We're now outside of the call context...
@@ -272,6 +275,9 @@ class ConsoleAddon:
         replaced by the choice the user made.
         """
         choices = ctx.master.commands.execute(choicecmd)
+        if not choices:
+            logger.warning(f"{prompt}: no choices available.")
+            return
 
         def callback(opt):
             # We're now outside of the call context...

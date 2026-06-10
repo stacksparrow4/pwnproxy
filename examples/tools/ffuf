@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""
+Example pwnproxy tool: turn the selected flow into a runnable ffuf script.
+
+pwnproxy "tools" are standalone executables placed in either
+``~/.config/pwnproxy/tools/`` or ``./.pwnproxy/tools/``. Pressing ``t`` in the
+mitmproxy flow list lets you pick one and runs it with a small JSON document on
+STDIN:
+
+    {
+        "method": "GET",
+        "url": "https://example.com/foo?bar=baz",
+        "req":  "/abs/path/to/000001.req",
+        "resp": "/abs/path/to/.000001.resp"
+    }
+
+This tool does NOT run ffuf. It creates a ``ffuf/`` directory in the current
+working directory containing a raw HTTP request (with pwnproxy's ``---`` header
+block stripped) and a ``ffuf-<name>.sh`` wrapper script you can run or tweak.
+
+To use it, copy this file to one of the tool directories and make it
+executable, e.g.:
+
+    mkdir -p ~/.config/pwnproxy/tools
+    cp examples/tools/ffuf ~/.config/pwnproxy/tools/ffuf
+    chmod +x ~/.config/pwnproxy/tools/ffuf
+"""
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    info = json.load(sys.stdin)
+
+    req_path = info.get("req")
+    if not req_path:
+        print("No request file available for this flow.", file=sys.stderr)
+        return 1
+
+    raw = Path(req_path).read_bytes()
+
+    # pwnproxy .req files start with a "---"-delimited metadata block:
+    #   ---
+    #   protocol: https
+    #   ---
+    #   GET / HTTP/1.1
+    #   ...
+    # Strip that leading block so ffuf sees a plain raw HTTP request.
+    if raw.startswith(b"---\n"):
+        # Drop everything up to and including the second "---\n".
+        _, _, raw = raw.split(b"---\n", 2)
+
+    out_dir = Path("ffuf")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    name = Path(req_path).stem  # e.g. "000001"
+    raw_file = out_dir / f"{name}.http"
+    raw_file.write_bytes(raw)
+
+    script = out_dir / f"ffuf-{name}.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'ffuf -u {json.dumps(info["url"])} '
+        f"-request {json.dumps(str(raw_file))} \"$@\"\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    # Printed lines show up in the mitmproxy event log.
+    print(f"Wrote {script}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
