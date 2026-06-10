@@ -1,3 +1,4 @@
 - This project uses uv. Always use `uv run pytest` and don't run pytest directly.
 - To run all tests: `uv run tox`.
 - When adding new source files, additionally run: `uv run tox -e individual_coverage -- FILENAME`.
+- If the environment seems broken (e.g. import errors, missing/corrupted packages like `pytest` or `pygments`), run `uv sync --reinstall` to rebuild it.
