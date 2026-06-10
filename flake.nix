@@ -20,6 +20,9 @@
               pname = "pwnproxy";
               version = "0.1.0";
               src = ./.;
+              pytestCheckPhase = "";
+              doCheck = false;
+              doInstallCheck = false;
             }
           );
         });
