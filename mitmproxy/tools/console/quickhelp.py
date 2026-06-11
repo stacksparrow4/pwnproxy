@@ -64,17 +64,16 @@ def make(
             else:
                 top_items["Edit"] = "Edit the flow's request file in Neovim"
             top_items |= {
-                "Duplicate": "Duplicate flow",
+                "Edit": "Edit the flow's request file in Neovim",
                 "Replay": "Replay this flow",
                 "Export": "Export this flow to file",
-                "Delete": "Delete flow from view",
             }
             if widget == FlowListBox:
+                top_items["Tool"] = "Run a tool on this flow"
                 if focused_flow.marked:
                     top_items["Unmark"] = "Toggle mark on this flow"
                 else:
                     top_items["Mark"] = "Toggle mark on this flow"
-                top_items["Edit"] = "Edit the flow's request file in Neovim"
             if focused_flow.intercepted:
                 top_items["Resume"] = "Resume this intercepted flow"
             if focused_flow.modified():

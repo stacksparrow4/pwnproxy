@@ -79,15 +79,6 @@ def map(km: Keymap) -> None:
         "Save response body to file",
     )
     km.add(
-        "d",
-        "view.flows.remove @focus",
-        ["flowlist", "flowview"],
-        "Delete flow from view",
-    )
-    km.add(
-        "D", "view.flows.duplicate @focus", ["flowlist", "flowview"], "Duplicate flow"
-    )
-    km.add(
         "x",
         """
         console.choose.cmd "Export as..." export.formats
