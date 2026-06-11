@@ -119,10 +119,21 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
         )
 
     def keypress(self, size, key):
+        walker = self.body
         if key == "m_start":
             self.master.commands.execute("view.focus.go 0")
+            # Move the viewport to the top along with the selection.
+            walker.focus_override = None
+            walker.follow_bottom = False
+            self.shift_focus(size, 0)
+            self._invalidate()
         elif key == "m_end":
             self.master.commands.execute("view.focus.go -1")
+            # Move the viewport to the bottom and keep following new flows.
+            walker.focus_override = self._max_scroll_anchor(size)
+            walker.follow_bottom = True
+            self.shift_focus(size, 0)
+            self._invalidate()
         elif key == "m_select":
             self.master.commands.execute("console.view.flow @focus")
         return urwid.ListBox.keypress(self, size, key)

@@ -121,6 +121,34 @@ async def test_does_not_follow_when_scrolled_up(console):
     assert box.body.focus_override == anchor
 
 
+async def test_g_and_G_move_viewport(console):
+    console.options.console_focus_follow = False
+    add_flows(console, 50)
+    size = (80, 24)
+    box = flowlist(console)
+    box.render(size, focus=True)
+
+    # Scroll into the middle of the list.
+    box.scroll(size, up=False, lines=15)
+    box.render(size, focus=True)
+    assert box.body.focus_override not in (None, 0)
+
+    # G: jump selection and viewport to the bottom, and keep following.
+    box.keypress(size, "m_end")
+    box.render(size, focus=True)
+    assert console.view.focus.index == 49
+    assert box.body.focus_override == box._max_scroll_anchor(size)
+    assert box.body.follow_bottom
+
+    # g: jump selection and viewport back to the top.
+    box.keypress(size, "m_start")
+    box.render(size, focus=True)
+    assert console.view.focus.index == 0
+    assert box.body.focus_override is None
+    assert not box.body.follow_bottom
+    assert top_pos(box, size) == 0
+
+
 async def test_mouse_wheel_scrolls(console):
     console.options.console_focus_follow = False
     add_flows(console, 50)
