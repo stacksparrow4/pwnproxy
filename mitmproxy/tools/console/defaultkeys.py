@@ -125,7 +125,12 @@ def map(km: Keymap) -> None:
         ["flowlist"],
         "Set flow list order",
     )
-    km.add("r", "rawsave.replay @focus", ["flowlist", "flowview"], "Replay this flow")
+    km.add(
+        "r",
+        "console.replay.prompt @focus",
+        ["flowlist", "flowview"],
+        "Replay this flow",
+    )
     km.add(
         "t",
         """

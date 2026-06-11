@@ -339,11 +339,15 @@ class RawSave:
         return flows
 
     @command.command("rawsave.replay")
-    def replay(self, flows: Sequence[flow.Flow]) -> None:
+    def replay(self, flows: Sequence[flow.Flow], name: str = "") -> None:
         """
         Copy the saved ``.req``/``.resp`` files for the given flows into a
-        "replay" directory, preserving their numbers (e.g. history/000001.req
-        -> replay/000001.req). The replay directory is created if needed.
+        "replay" directory.
+
+        By default the files keep their numbers (e.g. history/000001.req ->
+        replay/000001.req). If ``name`` is given, the files are saved as
+        ``replay/<name>.req`` and ``replay/.<name>.resp`` instead. The replay
+        directory is created if needed.
         """
         replay_dir = Path("replay")
         for f in flows:
@@ -354,14 +358,24 @@ class RawSave:
             try:
                 replay_dir.mkdir(parents=True, exist_ok=True)
                 for suffix in ("req", "resp"):
-                    name = self._name(n, suffix)
-                    src = self.directory / name
+                    src = self.directory / self._name(n, suffix)
+                    if name:
+                        dst_name = (
+                            f".{name}.{suffix}"
+                            if suffix == "resp"
+                            else f"{name}.{suffix}"
+                        )
+                    else:
+                        dst_name = self._name(n, suffix)
                     if src.exists():
-                        shutil.copyfile(src, replay_dir / name)
+                        shutil.copyfile(src, replay_dir / dst_name)
             except OSError as e:
                 logger.error(f"Error while copying to {replay_dir}: {e}")
                 continue
-            logging.log(ALERT, str(replay_dir / self._name(n, "req")))
+            if name:
+                logging.log(ALERT, str(replay_dir / f"{name}.req"))
+            else:
+                logging.log(ALERT, str(replay_dir / self._name(n, "req")))
 
     def req_path(self, flow: http.HTTPFlow) -> Path | None:
         """Return the path of the ``.req`` file for ``flow``, if it exists."""

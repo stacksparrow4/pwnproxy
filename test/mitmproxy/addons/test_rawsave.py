@@ -429,6 +429,28 @@ def test_replay_copies_files(tmp_path, monkeypatch, caplog):
     assert "replay/000001.req" in caplog.text
 
 
+def test_replay_named(tmp_path, monkeypatch, caplog):
+    import logging as _logging
+    monkeypatch.chdir(tmp_path)
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        ra.request(f)
+        ra.response(f)
+
+        replay = tmp_path / "replay"
+        with caplog.at_level(_logging.INFO):
+            ra.replay([f], "myname")
+
+    assert (replay / "myname.req").read_bytes() == (history / "000001.req").read_bytes()
+    assert (replay / ".myname.resp").read_bytes() == (
+        history / ".000001.resp"
+    ).read_bytes()
+    assert not (replay / "000001.req").exists()
+    assert "replay/myname.req" in caplog.text
+
+
 def test_replay_request_only(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     history = tmp_path / "history"

@@ -299,6 +299,28 @@ class ConsoleAddon:
             quoted += " "
         signals.status_prompt_command.send(partial=quoted)
 
+    @command.command("console.replay.prompt")
+    def console_replay_prompt(self, flows: Sequence[flow.Flow]) -> None:
+        """
+        Prompt the user for a replay file name, then copy the saved
+        request/response files for the given flows into the replay directory
+        under that name (replay/<name>.req and replay/.<name>.resp).
+        """
+
+        def callback(name: str) -> None:
+            name = name.strip()
+            if not name:
+                logger.warning("No replay file name given.")
+                return
+            try:
+                self.master.commands.call("rawsave.replay", flows, name)
+            except exceptions.CommandError as e:
+                logger.error(str(e))
+
+        signals.status_prompt.send(
+            prompt="Replay file name", text="", callback=callback
+        )
+
     @command.command("console.command.confirm")
     def console_command_confirm(
         self,
