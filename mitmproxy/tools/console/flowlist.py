@@ -122,17 +122,21 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
         walker = self.body
         if key == "m_start":
             self.master.commands.execute("view.focus.go 0")
-            # Move the viewport to the top along with the selection.
+            # Move the viewport to the top along with the selection. Keep the
+            # selection coupled to the scroll position so that subsequent
+            # keyboard navigation works as expected.
             walker.focus_override = None
             walker.follow_bottom = False
-            self.shift_focus(size, 0)
+            self.set_focus_valign("top")
             self._invalidate()
         elif key == "m_end":
             self.master.commands.execute("view.focus.go -1")
-            # Move the viewport to the bottom and keep following new flows.
-            walker.focus_override = self._max_scroll_anchor(size)
-            walker.follow_bottom = True
-            self.shift_focus(size, 0)
+            # Align the (now last) selected flow to the bottom of the viewport.
+            # We keep it as the actual focus -- rather than a detached scroll
+            # anchor -- so that up/down navigate from it instead of jumping.
+            walker.focus_override = None
+            walker.follow_bottom = False
+            self.set_focus_valign("bottom")
             self._invalidate()
         elif key == "m_select":
             self.master.commands.execute("console.view.flow @focus")

@@ -133,12 +133,18 @@ async def test_g_and_G_move_viewport(console):
     box.render(size, focus=True)
     assert box.body.focus_override not in (None, 0)
 
-    # G: jump selection and viewport to the bottom, and keep following.
+    # G: jump selection and viewport to the bottom, last flow at the bottom.
     box.keypress(size, "m_end")
     box.render(size, focus=True)
     assert console.view.focus.index == 49
-    assert box.body.focus_override == box._max_scroll_anchor(size)
-    assert box.body.follow_bottom
+    assert box.body.focus_override is None
+    assert top_pos(box, size) == box._max_scroll_anchor(size)
+
+    # The selection stays coupled, so up/down navigate from the last flow
+    # rather than jumping elsewhere.
+    box.keypress(size, "up")
+    box.render(size, focus=True)
+    assert console.view.focus.index == 48
 
     # g: jump selection and viewport back to the top.
     box.keypress(size, "m_start")
