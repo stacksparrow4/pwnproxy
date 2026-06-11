@@ -58,6 +58,10 @@ class FlowListWalker(urwid.ListWalker):
         # mouse-wheel scrolling can move the viewport without changing the
         # selection. ``None`` means "follow the selection" (the default).
         self.focus_override: int | None = None
+        # Whether the viewport is currently scrolled to the bottom. When set,
+        # the viewport keeps tracking the bottom as new flows arrive (so that
+        # follow mode keeps working), but only while actually scrolled there.
+        self.follow_bottom: bool = False
 
     def positions(self, reverse=False):
         # The stub implementation of positions can go once this issue is resolved:
@@ -86,6 +90,7 @@ class FlowListWalker(urwid.ListWalker):
         # Any explicit focus change (keyboard navigation, click) re-couples
         # the scroll position to the selection.
         self.focus_override = None
+        self.follow_bottom = False
         if self.master.commands.execute("view.properties.inbounds %d" % index):
             self.master.view.focus.index = index
 
@@ -151,19 +156,30 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
             _trim_top, fill_above = top_info
             top = fill_above[-1].position if fill_above else middle.focus_pos
 
+        max_anchor = self._max_scroll_anchor(size)
         if up:
             top = max(0, top - lines)
         else:
             # Don't scroll past the point where the last flow sits at the
             # bottom of the viewport, otherwise the rendering stops changing
             # while the anchor keeps advancing ("stored" overscroll).
-            top = min(self._max_scroll_anchor(size), top + lines)
+            top = min(max_anchor, top + lines)
 
         walker.focus_override = top
+        # Keep following new flows only while scrolled to the very bottom.
+        walker.follow_bottom = top >= max_anchor
         walker._modified()
         # Render the scroll anchor at the very top of the viewport.
         self.shift_focus(size, 0)
         self._invalidate()
+
+    def render(self, size, focus: bool = False):
+        walker = self.body
+        # While scrolled to the bottom, keep the viewport pinned there so that
+        # newly arriving flows remain visible (follow mode).
+        if walker.follow_bottom and walker.focus_override is not None:
+            walker.focus_override = self._max_scroll_anchor(size)
+        return super().render(size, focus)
 
     def _max_scroll_anchor(self, size) -> int:
         # The largest top-of-viewport flow index that still fills the screen,

@@ -81,6 +81,46 @@ async def test_keyboard_navigation_recouples_selection(console):
     assert box.body.focus_override is None
 
 
+async def test_follows_new_flows_when_scrolled_to_bottom(console):
+    console.options.console_focus_follow = False
+    add_flows(console, 50)
+    size = (80, 24)
+    box = flowlist(console)
+    box.render(size, focus=True)
+
+    # Scroll all the way to the bottom.
+    box.scroll(size, up=False, lines=1000)
+    box.render(size, focus=True)
+    assert box.body.follow_bottom
+    anchor = box.body.focus_override
+
+    # New flows arriving keep the viewport pinned to the bottom.
+    add_flows(console, 10)
+    box.render(size, focus=True)
+    assert box.body.focus_override == box._max_scroll_anchor(size)
+    assert box.body.focus_override > anchor
+
+
+async def test_does_not_follow_when_scrolled_up(console):
+    console.options.console_focus_follow = False
+    add_flows(console, 50)
+    size = (80, 24)
+    box = flowlist(console)
+    box.render(size, focus=True)
+
+    # Scroll to the bottom, then back up a bit.
+    box.scroll(size, up=False, lines=1000)
+    box.scroll(size, up=True, lines=5)
+    box.render(size, focus=True)
+    assert not box.body.follow_bottom
+    anchor = box.body.focus_override
+
+    # New flows must not move the viewport while scrolled up.
+    add_flows(console, 10)
+    box.render(size, focus=True)
+    assert box.body.focus_override == anchor
+
+
 async def test_mouse_wheel_scrolls(console):
     console.options.console_focus_follow = False
     add_flows(console, 50)

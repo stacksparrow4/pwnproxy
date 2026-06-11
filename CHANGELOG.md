@@ -19,7 +19,8 @@
 - The current view filter is now persisted to `view-filter.txt` in the working
   directory and restored on startup.
 - mitmproxy: Scrolling the flow list with the mouse wheel now scrolls the
-  viewport like a webpage instead of moving the selected flow.
+  viewport like a webpage instead of moving the selected flow. Follow mode
+  keeps working while the list is scrolled to the bottom.
 - Fix contentview detection for XML files that start with CRLF.
   ([#8243](https://github.com/mitmproxy/mitmproxy/pull/8243), @ADiTyaRaj8969)
 - mitmweb: Fix the filter input losing half-typed text on unrelated parent re-renders.
