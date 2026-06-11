@@ -321,6 +321,24 @@ class ConsoleAddon:
             prompt="Replay file name", text="", callback=callback
         )
 
+    @command.command("console.tool.prompt")
+    def console_tool_prompt(self, name: str, flows: Sequence[flow.Flow]) -> None:
+        """
+        Prompt the user for a name/label, then run the named tool against the
+        given flow(s), passing the label to the tool via the ``name`` field of
+        the JSON document on STDIN.
+        """
+
+        def callback(label: str) -> None:
+            try:
+                self.master.commands.call("tools.run", name, flows, label.strip())
+            except exceptions.CommandError as e:
+                logger.error(str(e))
+
+        signals.status_prompt.send(
+            prompt=f"Name for {name} run", text="", callback=callback
+        )
+
     @command.command("console.command.confirm")
     def console_command_confirm(
         self,

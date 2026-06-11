@@ -31,14 +31,17 @@ class Tools:
     script's STDIN:
 
         {
+            "name": "login-fuzz",
             "method": "GET",
             "url": "https://example.com/foo?bar=baz",
             "req": "/abs/path/to/000001.req",
             "resp": "/abs/path/to/.000001.resp"
         }
 
-    ``req``/``resp`` may be ``null`` if the corresponding file is unavailable.
-    The script is run with the current working directory of mitmproxy.
+    ``name`` is a user-supplied label for this run (an empty string if none was
+    given). ``req``/``resp`` may be ``null`` if the corresponding file is
+    unavailable. The script is run with the current working directory of
+    mitmproxy.
     """
 
     def _tool_dirs(self) -> list[Path]:
@@ -69,8 +72,13 @@ class Tools:
         return sorted(self._tools())
 
     @command.command("tools.run")
-    def run(self, name: str, flows: Sequence[flow.Flow]) -> None:
-        """Run the named tool against the given flow(s)."""
+    def run(self, name: str, flows: Sequence[flow.Flow], label: str = "") -> None:
+        """
+        Run the named tool against the given flow(s).
+
+        ``label`` is an optional user-supplied name for this run, passed to the
+        tool via the ``name`` field of the JSON document on STDIN.
+        """
         script = self._tools().get(name)
         if script is None:
             raise exceptions.CommandError(f"No such tool: {name}")
@@ -78,14 +86,15 @@ class Tools:
             if not isinstance(f, http.HTTPFlow):
                 logger.warning("Tools only support HTTP flows.")
                 continue
-            self._run_one(script, f)
+            self._run_one(script, f, label)
 
-    def _run_one(self, script: Path, flow: http.HTTPFlow) -> None:
+    def _run_one(self, script: Path, flow: http.HTTPFlow, label: str = "") -> None:
         rawsave = ctx.master.addons.get("rawsave")
         req_path = rawsave.req_path(flow) if rawsave else None
         resp_path = rawsave.resp_path(flow) if rawsave else None
 
         payload = {
+            "name": label,
             "method": flow.request.method,
             "url": flow.request.url,
             "req": str(req_path.resolve()) if req_path else None,

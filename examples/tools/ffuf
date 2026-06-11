@@ -8,11 +8,16 @@ mitmproxy flow list lets you pick one and runs it with a small JSON document on
 STDIN:
 
     {
+        "name": "login-fuzz",
         "method": "GET",
         "url": "https://example.com/foo?bar=baz",
         "req":  "/abs/path/to/000001.req",
         "resp": "/abs/path/to/.000001.resp"
     }
+
+``name`` is the label you typed when launching the tool (it may be empty). It
+is used to name the generated files; when empty this tool falls back to the
+request file's stem (e.g. ``000001``).
 
 This tool does NOT run ffuf. It creates a ``ffuf/`` directory in the current
 working directory containing a raw HTTP request (with pwnproxy's ``---`` header
@@ -26,7 +31,6 @@ executable, e.g.:
     chmod +x ~/.config/pwnproxy/tools/ffuf
 """
 import json
-import os
 import stat
 import sys
 from pathlib import Path
@@ -56,8 +60,9 @@ def main() -> int:
     out_dir = Path("ffuf")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    name = Path(req_path).stem  # e.g. "000001"
-    raw_file = out_dir / f"{name}.http"
+    # Prefer the user-supplied name; fall back to the request file's stem.
+    name = info.get("name") or Path(req_path).stem  # e.g. "login-fuzz" or "000001"
+    raw_file = out_dir / f"{name}.req"
     raw_file.write_bytes(raw)
 
     script = out_dir / f"ffuf-{name}.sh"

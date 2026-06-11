@@ -78,11 +78,29 @@ def test_run_feeds_json_and_runs_in_cwd(in_tmp_cwd):
         t.run("dump", [f])
 
     data = json.loads(out.read_text())
+    assert data["name"] == ""
     assert data["method"] == f.request.method
     assert data["url"] == f.request.url
     assert data["req"].endswith(".req")
     assert data["resp"].endswith(".resp")
     assert os.path.isabs(data["req"])
+
+
+def test_run_passes_label_as_name(in_tmp_cwd):
+    out = in_tmp_cwd / "out.json"
+    _make_tool(
+        in_tmp_cwd / ".pwnproxy" / "tools",
+        "dump",
+        f"#!/bin/sh\ncat > {out}\n",
+    )
+
+    t = tools.Tools()
+    with taddons.context(t):
+        f = tflow.tflow(resp=True)
+        t.run("dump", [f], "login-fuzz")
+
+    data = json.loads(out.read_text())
+    assert data["name"] == "login-fuzz"
 
 
 def test_run_ignores_non_http_flows(in_tmp_cwd, caplog):

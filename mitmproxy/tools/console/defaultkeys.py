@@ -135,7 +135,7 @@ def map(km: Keymap) -> None:
         "t",
         """
         console.choose.cmd "Run tool..." tools.options
-        tools.run {choice} @focus
+        console.tool.prompt {choice} @focus
         """,
         ["flowlist"],
         "Run a tool on this flow",
