@@ -21,12 +21,12 @@ logger = logging.getLogger(__name__)
 class RawSave:
     """
     Persist every HTTP request and response to the current working directory
-    as numbered, zero-padded ``000001.req`` / ``.000001.resp`` files.
+    as numbered, zero-padded ``000001.req`` / ``000001.req.resp`` files.
 
     Request files are prefixed with a small ``---`` delimited metadata block
     describing the connection (host, port, protocol, sni) followed by the raw
     HTTP request. Response files contain the raw HTTP response and are stored
-    as hidden files (with a leading dot) alongside their request counterparts.
+    alongside their request counterparts with an additional ``.resp`` suffix.
     """
 
     def __init__(self, directory: str = "history") -> None:
@@ -43,13 +43,13 @@ class RawSave:
         # response) is opened in Neovim for editing before it is forwarded.
         self.intercept_request: bool = False
         self.intercept_response: bool = False
-        # Start after any pre-existing N.req/N.resp files so we never clobber
-        # data from a previous run.
+        # Start after any pre-existing N.req/N.req.resp files so we never
+        # clobber data from a previous run.
         self.counter = self._highest_existing_number()
 
     def _highest_existing_number(self) -> int:
         highest = 0
-        pattern = re.compile(r"^\.?(\d+)\.(req|resp)$")
+        pattern = re.compile(r"^(\d+)\.req(\.resp)?$")
         try:
             entries = list(self.directory.iterdir())
         except OSError:
@@ -64,11 +64,11 @@ class RawSave:
     def _name(n: int, suffix: str) -> str:
         """Build a file name, zero-padded to six digits, e.g. ``000001.req``.
 
-        Response files are prefixed with a dot (e.g. ``.000001.resp``) so they
-        are hidden files alongside their visible ``.req`` counterparts.
+        Response files share the request file name with an additional ``.resp``
+        suffix (e.g. ``000001.req.resp``).
         """
         if suffix == "resp":
-            return f".{n:06d}.{suffix}"
+            return f"{n:06d}.req.resp"
         return f"{n:06d}.{suffix}"
 
     def _number_for(self, flow: http.HTTPFlow) -> int:
@@ -346,7 +346,7 @@ class RawSave:
 
         By default the files keep their numbers (e.g. history/000001.req ->
         replay/000001.req). If ``name`` is given, the files are saved as
-        ``replay/<name>.req`` and ``replay/.<name>.resp`` instead. The replay
+        ``replay/<name>.req`` and ``replay/<name>.req.resp`` instead. The replay
         directory is created if needed.
         """
         replay_dir = Path("replay")
@@ -361,7 +361,7 @@ class RawSave:
                     src = self.directory / self._name(n, suffix)
                     if name:
                         dst_name = (
-                            f".{name}.{suffix}"
+                            f"{name}.req.resp"
                             if suffix == "resp"
                             else f"{name}.{suffix}"
                         )

@@ -50,7 +50,7 @@ def _isolate_cwd(tmp_path, monkeypatch):
 
     This keeps tests isolated from each other and from the repository when code
     under test reads or writes files relative to the current working directory
-    (e.g. the always-on RawSave addon, which persists *.req/*.resp files to the
+    (e.g. the always-on RawSave addon, which persists *.req/*.req.resp files to the
     CWD).
     """
     monkeypatch.chdir(tmp_path)

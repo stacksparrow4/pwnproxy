@@ -35,7 +35,7 @@ class Tools:
             "method": "GET",
             "url": "https://example.com/foo?bar=baz",
             "req": "/abs/path/to/000001.req",
-            "resp": "/abs/path/to/.000001.resp"
+            "resp": "/abs/path/to/000001.req.resp"
         }
 
     ``name`` is a user-supplied label for this run (an empty string if none was

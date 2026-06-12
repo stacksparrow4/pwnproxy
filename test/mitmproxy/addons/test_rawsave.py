@@ -20,7 +20,7 @@ def test_request_and_response(tmp_path):
         ra.response(f)
 
     req = (tmp_path / "000001.req").read_bytes()
-    resp = (tmp_path / ".000001.resp").read_bytes()
+    resp = (tmp_path / "000001.req.resp").read_bytes()
 
     assert req.startswith(b"---\n")
     # host differs from Host header, port is non-default => both present
@@ -120,21 +120,21 @@ def test_counter_increments_per_flow(tmp_path):
         ra.response(f2)
 
     assert (tmp_path / "000001.req").exists()
-    assert (tmp_path / ".000001.resp").exists()
+    assert (tmp_path / "000001.req.resp").exists()
     assert (tmp_path / "000002.req").exists()
-    assert (tmp_path / ".000002.resp").exists()
+    assert (tmp_path / "000002.req.resp").exists()
 
 
 def test_resumes_after_existing_files(tmp_path):
     (tmp_path / "000003.req").write_bytes(b"old")
-    (tmp_path / ".000001.resp").write_bytes(b"old")
+    (tmp_path / "000001.req.resp").write_bytes(b"old")
     ra = rawsave.RawSave(directory=str(tmp_path))
     with taddons.context(ra):
         f = tflow.tflow(resp=True)
         ra.request(f)
         ra.response(f)
     assert (tmp_path / "000004.req").exists()
-    assert (tmp_path / ".000004.resp").exists()
+    assert (tmp_path / "000004.req.resp").exists()
 
 
 def test_response_without_request(tmp_path):
@@ -143,7 +143,7 @@ def test_response_without_request(tmp_path):
         f = tflow.tflow(resp=True)
         ra.response(f)
     # response that arrives without a prior request hook still gets numbered
-    assert (tmp_path / ".000001.resp").exists()
+    assert (tmp_path / "000001.req.resp").exists()
 
 
 def test_no_response(tmp_path):
@@ -166,7 +166,7 @@ def test_response_body_is_decoded(tmp_path):
         assert f.response.raw_content != b"hello decoded world"
         ra.response(f)
 
-    resp = (tmp_path / ".000001.resp").read_bytes()
+    resp = (tmp_path / "000001.req.resp").read_bytes()
     head, _, body = resp.partition(b"\n\n")
     assert body == b"hello decoded world"
     # encoding header stripped, content-length matches the decoded body
@@ -183,7 +183,7 @@ def test_chunked_transfer_encoding_is_removed(tmp_path):
         f.response.headers["transfer-encoding"] = "chunked"
         ra.response(f)
 
-    head = (tmp_path / ".000001.resp").read_bytes().partition(b"\n\n")[0]
+    head = (tmp_path / "000001.req.resp").read_bytes().partition(b"\n\n")[0]
     assert b"transfer-encoding" not in head.lower()
     assert b"content-length:" in head.lower()
 
@@ -197,7 +197,7 @@ def test_undecodable_response_kept_as_is(tmp_path):
         f.response.raw_content = b"not-gzip"
         ra.response(f)
 
-    body = (tmp_path / ".000001.resp").read_bytes().partition(b"\n\n")[2]
+    body = (tmp_path / "000001.req.resp").read_bytes().partition(b"\n\n")[2]
     assert body == b"not-gzip"
 
 
@@ -210,7 +210,7 @@ def test_missing_content_falls_back_to_head(tmp_path):
         ra.request(f)
         ra.response(f)
     assert b"host:" in (tmp_path / "000001.req").read_bytes()
-    assert (tmp_path / ".000001.resp").read_bytes().startswith(b"HTTP/")
+    assert (tmp_path / "000001.req.resp").read_bytes().startswith(b"HTTP/")
 
 
 def test_default_directory_is_history():
@@ -227,7 +227,7 @@ def test_creates_history_directory_on_write(tmp_path):
         ra.response(f)
     assert history.is_dir()
     assert (history / "000001.req").exists()
-    assert (history / ".000001.resp").exists()
+    assert (history / "000001.req.resp").exists()
 
 
 def test_uncreatable_directory_logs_error(tmp_path, caplog):
@@ -403,7 +403,7 @@ def test_req_path_for_restored_flow(tmp_path):
 
 def test_filename_zero_padding():
     assert rawsave.RawSave._name(1, "req") == "000001.req"
-    assert rawsave.RawSave._name(42, "resp") == ".000042.resp"
+    assert rawsave.RawSave._name(42, "resp") == "000042.req.resp"
     assert rawsave.RawSave._name(1234567, "req") == "1234567.req"
 
 
@@ -423,8 +423,8 @@ def test_replay_copies_files(tmp_path, monkeypatch, caplog):
             ra.replay([f])
 
     assert (replay / "000001.req").read_bytes() == (history / "000001.req").read_bytes()
-    assert (replay / ".000001.resp").read_bytes() == (
-        history / ".000001.resp"
+    assert (replay / "000001.req.resp").read_bytes() == (
+        history / "000001.req.resp"
     ).read_bytes()
     assert "replay/000001.req" in caplog.text
 
@@ -444,8 +444,8 @@ def test_replay_named(tmp_path, monkeypatch, caplog):
             ra.replay([f], "myname")
 
     assert (replay / "myname.req").read_bytes() == (history / "000001.req").read_bytes()
-    assert (replay / ".myname.resp").read_bytes() == (
-        history / ".000001.resp"
+    assert (replay / "myname.req.resp").read_bytes() == (
+        history / "000001.req.resp"
     ).read_bytes()
     assert not (replay / "000001.req").exists()
     assert "replay/myname.req" in caplog.text
@@ -462,7 +462,7 @@ def test_replay_request_only(tmp_path, monkeypatch):
 
     replay = tmp_path / "replay"
     assert (replay / "000001.req").exists()
-    assert not (replay / ".000001.resp").exists()
+    assert not (replay / "000001.req.resp").exists()
 
 
 def test_replay_unknown_flow_warns(tmp_path, monkeypatch, caplog):
@@ -553,8 +553,8 @@ def test_intercept_response_edits_flow(tmp_path):
         ra.intercept_response_toggle()
         ra.response(f)
 
-    assert (history / ".000001.resp.orig").exists()
-    assert (history / ".000001.resp").read_bytes() == edited
+    assert (history / "000001.req.resp.orig").exists()
+    assert (history / "000001.req.resp").read_bytes() == edited
     assert f.response.status_code == 404
     assert f.response.content == b"bye"
 
@@ -622,7 +622,7 @@ def test_intercept_response_missing_file_noop(tmp_path):
     with taddons.context(ra):
         f = tflow.tflow(resp=True)
         ra.request(f)  # assigns a number and writes .req, but not .resp
-        assert not (history / ".000001.resp").exists()
+        assert not (history / "000001.req.resp").exists()
         ra._intercept_response(f)  # number known, .resp missing -> no-op
 
 
@@ -711,7 +711,7 @@ def test_intercept_response_gets_metadata_section(tmp_path):
     assert seen[0].startswith(b"---\n")
     assert b"stop_intercepting: false" in seen[0]
     # the saved .resp keeps neither the --- block nor the keys
-    saved = (history / ".000001.resp").read_bytes()
+    saved = (history / "000001.req.resp").read_bytes()
     assert not saved.startswith(b"---")
     assert b"stop_intercepting" not in saved
 
@@ -807,7 +807,7 @@ def test_stop_intercepting_response_disables(tmp_path, caplog):
     assert f.response.status_code == original_status
     assert ra.intercept_response is False
     assert "Response intercept: off" in caplog.text
-    assert not (history / ".000001.resp.orig").exists()
+    assert not (history / "000001.req.resp.orig").exists()
 
 
 import os as _os
@@ -825,7 +825,7 @@ def test_map_symlink_created(tmp_path, monkeypatch):
         ra.response(f)
 
     link_req = tmp_path / "map" / "example.com" / "test" / "000001.req"
-    link_resp = tmp_path / "map" / "example.com" / "test" / ".000001.resp"
+    link_resp = tmp_path / "map" / "example.com" / "test" / "000001.req.resp"
     assert link_req.is_symlink()
     assert link_resp.is_symlink()
     # points at the history file via a relative path

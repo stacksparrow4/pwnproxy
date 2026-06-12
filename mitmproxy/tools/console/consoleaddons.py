@@ -304,7 +304,7 @@ class ConsoleAddon:
         """
         Prompt the user for a replay file name, then copy the saved
         request/response files for the given flows into the replay directory
-        under that name (replay/<name>.req and replay/.<name>.resp).
+        under that name (replay/<name>.req and replay/<name>.req.resp).
         """
 
         def callback(name: str) -> None:
