@@ -3,6 +3,7 @@ from functools import lru_cache
 import urwid
 
 import mitmproxy.tools.console.master
+from mitmproxy.addons.rawsave import NUMBER_WIDTH
 from mitmproxy.tools.console import common
 from mitmproxy.tools.console import layoutwidget
 
@@ -26,7 +27,7 @@ class FlowItem(urwid.WidgetWrap):
 
         rawsave = self.master.addons.get("rawsave")
         n = rawsave.flow_numbers.get(self.flow.id) if rawsave else None
-        filename = f"{n:06d}" if n is not None else None
+        filename = f"{n:0{NUMBER_WIDTH}d}" if n is not None else None
 
         return common.format_flow(
             self.flow,

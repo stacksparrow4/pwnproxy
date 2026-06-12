@@ -88,15 +88,15 @@ class Tools:
                 continue
             self._run_one(script, f, label)
 
-    def _run_one(self, script: Path, flow: http.HTTPFlow, label: str = "") -> None:
+    def _run_one(self, script: Path, f: http.HTTPFlow, label: str = "") -> None:
         rawsave = ctx.master.addons.get("rawsave")
-        req_path = rawsave.req_path(flow) if rawsave else None
-        resp_path = rawsave.resp_path(flow) if rawsave else None
+        req_path = rawsave.req_path(f) if rawsave else None
+        resp_path = rawsave.resp_path(f) if rawsave else None
 
         payload = {
             "name": label,
-            "method": flow.request.method,
-            "url": flow.request.url,
+            "method": f.request.method,
+            "url": f.request.url,
             "req": str(req_path.resolve()) if req_path else None,
             "resp": str(resp_path.resolve()) if resp_path else None,
         }

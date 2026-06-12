@@ -188,13 +188,20 @@ class ConsoleMaster(master.Master):
         return data
 
     def spawn_editor_file(self, path: str) -> None:
-        """Open an existing file in Neovim."""
-        cmd = ["nvim", path]
+        """Open an existing file in the configured editor.
+
+        Uses the same editor resolution as :meth:`spawn_editor`
+        (``$MITMPROXY_EDITOR``/``$EDITOR``, falling back to a sensible default),
+        rather than editing the file in-memory.
+        """
+        c = self.get_editor()
+        cmd = shlex.split(c)
+        cmd.append(path)
         with self.uistopped():
             try:
                 subprocess.call(cmd)
             except Exception:
-                signals.status_message.send(message="Can't start Neovim (nvim).")
+                signals.status_message.send(message="Can't start editor: %s" % c)
 
     def spawn_external_viewer(self, data, contenttype):
         if contenttype:

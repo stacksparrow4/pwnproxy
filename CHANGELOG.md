@@ -18,6 +18,8 @@
   complementing the existing `tab` shortcut.
 - The current view filter is now persisted to `view-filter.txt` in the working
   directory and restored on startup.
+- The `anticache` option now defaults to `True`, stripping request headers that
+  might cause the server to return a 304 Not Modified response.
 - mitmproxy: Scrolling the flow list with the mouse wheel now scrolls the
   viewport like a webpage instead of moving the selected flow. Follow mode
   keeps working while the list is scrolled to the bottom.

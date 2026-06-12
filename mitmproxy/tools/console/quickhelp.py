@@ -62,9 +62,9 @@ def make(
             if widget == FlowListBox:
                 top_items["Select"] = "Select"
             else:
-                top_items["Edit"] = "Edit the flow's request file in Neovim"
+                top_items["Edit"] = "Edit the flow's request file in an external editor"
             top_items |= {
-                "Edit": "Edit the flow's request file in Neovim",
+                "Edit": "Edit the flow's request file in an external editor",
                 "Replay": "Replay this flow",
                 "Export": "Export this flow to file",
             }
@@ -144,7 +144,7 @@ def make(
     bottom_items |= {
         "Events": "View event log",
         "Options": "View options",
-        "Intercept": "Toggle interactive request intercept (edit in Neovim)",
+        "Intercept": "Toggle interactive request intercept (edit in external editor)",
         "Filter": "Set view filter",
     }
     if focused_flow:

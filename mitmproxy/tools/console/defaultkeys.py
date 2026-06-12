@@ -51,13 +51,13 @@ def map(km: Keymap) -> None:
         "I",
         "rawsave.intercept.response.toggle",
         ["global"],
-        "Toggle interactive response intercept (edit in Neovim)",
+        "Toggle interactive response intercept (edit in external editor)",
     )
     km.add(
         "i",
         "rawsave.intercept.toggle",
         ["global"],
-        "Toggle interactive request intercept (edit in Neovim)",
+        "Toggle interactive request intercept (edit in external editor)",
     )
     km.add("W", "console.command.set save_stream_file", ["global"], "Stream to file")
     km.add(
@@ -181,7 +181,7 @@ def map(km: Keymap) -> None:
         "e",
         "console.edit.focus",
         ["flowlist", "flowview"],
-        "Edit the flow's request file in Neovim",
+        "Edit the flow's request file in an external editor",
     )
     km.add(
         "f",

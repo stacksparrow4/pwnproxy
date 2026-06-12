@@ -517,7 +517,7 @@ class ConsoleAddon:
     def edit_focus(self) -> None:
         """
         Edit the currently focused flow by opening its saved ``.req`` file in
-        Neovim.
+        an external editor (``$MITMPROXY_EDITOR``/``$EDITOR``).
         """
         flow = self.master.view.focus.flow
         if not flow:

@@ -17,6 +17,11 @@ from mitmproxy.utils import asyncio_utils
 
 logger = logging.getLogger(__name__)
 
+# Width (in digits) that flow numbers are zero-padded to, e.g. ``000001``.
+# Shared with the console UI (flow list column) so the on-disk file names and
+# the displayed request id stay in sync.
+NUMBER_WIDTH = 6
+
 
 class RawSave:
     """
@@ -40,7 +45,8 @@ class RawSave:
         # re-save them when load_flow replays their lifecycle events.
         self.restored_ids: set[str] = set()
         # Burp-style interactive intercept: when enabled, each request (or
-        # response) is opened in Neovim for editing before it is forwarded.
+        # response) is opened in an external editor for editing before it is
+        # forwarded.
         self.intercept_request: bool = False
         self.intercept_response: bool = False
         # Start after any pre-existing N.req/N.req.resp files so we never
@@ -68,15 +74,15 @@ class RawSave:
         suffix (e.g. ``000001.req.resp``).
         """
         if suffix == "resp":
-            return f"{n:06d}.req.resp"
-        return f"{n:06d}.{suffix}"
+            return f"{n:0{NUMBER_WIDTH}d}.req.resp"
+        return f"{n:0{NUMBER_WIDTH}d}.{suffix}"
 
-    def _number_for(self, flow: http.HTTPFlow) -> int:
-        n = self.flow_numbers.get(flow.id)
+    def _number_for(self, f: http.HTTPFlow) -> int:
+        n = self.flow_numbers.get(f.id)
         if n is None:
             self.counter += 1
             n = self.counter
-            self.flow_numbers[flow.id] = n
+            self.flow_numbers[f.id] = n
         return n
 
     def _write(self, name: str, data: bytes) -> None:
@@ -86,10 +92,10 @@ class RawSave:
         except OSError as e:
             logger.error(f"Error while writing {name}: {e}")
 
-    def _metadata(self, flow: http.HTTPFlow) -> bytes:
-        request = flow.request
+    def _metadata(self, f: http.HTTPFlow) -> bytes:
+        request = f.request
         protocol = request.scheme or ("https" if request.port == 443 else "http")
-        sni = flow.server_conn.sni or flow.client_conn.sni or ""
+        sni = f.server_conn.sni or f.client_conn.sni or ""
 
         # The host portion of the Host/authority header, used to determine
         # whether host/sni match their defaults.
@@ -133,7 +139,7 @@ class RawSave:
                 headers.insert(0, "Host", request.host_header)
         return b"%s\r\n%s\r\n" % (first_line, bytes(headers))
 
-    def _link_into_map(self, flow: http.HTTPFlow, name: str) -> None:
+    def _link_into_map(self, f: http.HTTPFlow, name: str) -> None:
         """
         Create a symlink for ``history/<name>`` under a ``map`` directory whose
         subdirectory structure mirrors the request's host and path, e.g.
@@ -142,7 +148,7 @@ class RawSave:
 
         Query strings are ignored; each path segment becomes a directory.
         """
-        request = flow.request
+        request = f.request
         parts = [request.host, *request.path_components]
         # Skip empty/traversal segments so a hostile target can't escape map/.
         safe = [
@@ -162,16 +168,16 @@ class RawSave:
         except OSError as e:
             logger.error(f"Error while creating map symlink {link}: {e}")
 
-    def save_request(self, flow: http.HTTPFlow) -> None:
-        n = self._number_for(flow)
-        head = self._assemble_request_head(flow.request)
-        body = flow.request.data.content or b""
+    def save_request(self, f: http.HTTPFlow) -> None:
+        n = self._number_for(f)
+        head = self._assemble_request_head(f.request)
+        body = f.request.data.content or b""
         raw = head + body
         # Use bare \n line endings (technically not valid HTTP) as requested.
         raw = raw.replace(b"\r\n", b"\n")
         name = self._name(n, "req")
-        self._write(name, self._metadata(flow) + raw)
-        self._link_into_map(flow, name)
+        self._write(name, self._metadata(f) + raw)
+        self._link_into_map(f, name)
 
     def _assemble_response(self, response: http.Response) -> bytes:
         """
@@ -199,14 +205,14 @@ class RawSave:
         head = head.replace(b"\r\n", b"\n")
         return head + body
 
-    def save_response(self, flow: http.HTTPFlow) -> None:
-        if flow.response is None:
+    def save_response(self, f: http.HTTPFlow) -> None:
+        if f.response is None:
             return
-        n = self._number_for(flow)
-        raw = self._assemble_response(flow.response)
+        n = self._number_for(f)
+        raw = self._assemble_response(f.response)
         name = self._name(n, "resp")
         self._write(name, raw)
-        self._link_into_map(flow, name)
+        self._link_into_map(f, name)
 
     # Restoring previously saved flows
 
@@ -304,11 +310,11 @@ class RawSave:
         )
         server = connection.Server(address=(request.host, request.port))
         server.sni = sni
-        flow = http.HTTPFlow(client, server)
-        flow.request = request
+        f = http.HTTPFlow(client, server)
+        f.request = request
         if resp_bytes is not None:
-            flow.response = self._parse_response_file(resp_bytes)
-        return flow
+            f.response = self._parse_response_file(resp_bytes)
+        return f
 
     def _restored_flows(self) -> list[http.HTTPFlow]:
         pattern = re.compile(r"^(\d+)\.req$")
@@ -329,13 +335,13 @@ class RawSave:
             try:
                 req_bytes = req_file.read_bytes()
                 resp_bytes = resp_file.read_bytes() if resp_file.exists() else None
-                flow = self._build_flow(req_bytes, resp_bytes)
+                f = self._build_flow(req_bytes, resp_bytes)
             except (OSError, ValueError, IndexError) as e:
                 logger.warning(f"Could not restore {self._name(n, 'req')}: {e}")
                 continue
-            self.restored_ids.add(flow.id)
-            self.flow_numbers[flow.id] = n
-            flows.append(flow)
+            self.restored_ids.add(f.id)
+            self.flow_numbers[f.id] = n
+            flows.append(f)
         return flows
 
     @command.command("rawsave.replay")
@@ -377,9 +383,9 @@ class RawSave:
             else:
                 logging.log(ALERT, str(replay_dir / self._name(n, "req")))
 
-    def req_path(self, flow: http.HTTPFlow) -> Path | None:
-        """Return the path of the ``.req`` file for ``flow``, if it exists."""
-        n = self.flow_numbers.get(flow.id)
+    def req_path(self, f: http.HTTPFlow) -> Path | None:
+        """Return the path of the ``.req`` file for ``f``, if it exists."""
+        n = self.flow_numbers.get(f.id)
         if n is None:
             return None
         path = self.directory / self._name(n, "req")
@@ -387,9 +393,9 @@ class RawSave:
             return None
         return path
 
-    def resp_path(self, flow: http.HTTPFlow) -> Path | None:
-        """Return the path of the ``.resp`` file for ``flow``, if it exists."""
-        n = self.flow_numbers.get(flow.id)
+    def resp_path(self, f: http.HTTPFlow) -> Path | None:
+        """Return the path of the ``.resp`` file for ``f``, if it exists."""
+        n = self.flow_numbers.get(f.id)
         if n is None:
             return None
         path = self.directory / self._name(n, "resp")
@@ -401,20 +407,20 @@ class RawSave:
 
     @command.command("rawsave.intercept.toggle")
     def intercept_toggle(self) -> None:
-        """Toggle interactive request intercept (edit each request in Neovim)."""
+        """Toggle interactive request intercept (edit each request in an external editor)."""
         self.intercept_request = not self.intercept_request
         state = "on" if self.intercept_request else "off"
         logging.log(ALERT, f"Request intercept: {state}")
 
     @command.command("rawsave.intercept.response.toggle")
     def intercept_response_toggle(self) -> None:
-        """Toggle interactive response intercept (edit each response in Neovim)."""
+        """Toggle interactive response intercept (edit each response in an external editor)."""
         self.intercept_response = not self.intercept_response
         state = "on" if self.intercept_response else "off"
         logging.log(ALERT, f"Response intercept: {state}")
 
     # Special intercept-only keys and their defaults. These are injected into
-    # the ``---`` block of the file opened in Neovim, but are never written to
+    # the ``---`` block of the file opened in the editor, but are never written to
     # the on-disk .req/.resp/.orig files.
     _INTERCEPT_KEYS: dict[str, bool] = {
         "stop_intercepting": False,
@@ -477,7 +483,7 @@ class RawSave:
         self, path: Path, has_metadata: bool
     ) -> tuple[str, bytes | None] | None:
         """
-        Open ``path`` in Neovim with the special intercept keys injected.
+        Open ``path`` in an external editor with the special intercept keys injected.
 
         Returns one of:
           * None - editing was unavailable or failed; do nothing.
@@ -510,8 +516,8 @@ class RawSave:
             logger.error(f"Error while editing {path}: {e}")
             return None
 
-    def _intercept_request(self, flow: http.HTTPFlow) -> None:
-        path = self.req_path(flow)
+    def _intercept_request(self, f: http.HTTPFlow) -> None:
+        path = self.req_path(f)
         if path is None:
             return
         result = self._run_intercept(path, has_metadata=True)
@@ -528,10 +534,10 @@ class RawSave:
         except (ValueError, IndexError) as e:
             logger.error(f"Could not parse edited request: {e}")
             return
-        flow.request = request
+        f.request = request
 
-    def _intercept_response(self, flow: http.HTTPFlow) -> None:
-        n = self.flow_numbers.get(flow.id)
+    def _intercept_response(self, f: http.HTTPFlow) -> None:
+        n = self.flow_numbers.get(f.id)
         if n is None:
             return
         path = self.directory / self._name(n, "resp")
@@ -547,14 +553,14 @@ class RawSave:
             return
         assert cleaned is not None
         try:
-            flow.response = self._parse_response_file(cleaned)
+            f.response = self._parse_response_file(cleaned)
         except (ValueError, IndexError) as e:
             logger.error(f"Could not parse edited response: {e}")
             return
 
     async def restore(self) -> None:
-        for flow in self._restored_flows():
-            await ctx.master.load_flow(flow)
+        for f in self._restored_flows():
+            await ctx.master.load_flow(f)
 
     # mitmproxy hooks
 
@@ -563,16 +569,16 @@ class RawSave:
             self.restore(), name="rawsave restore", keep_ref=False
         )
 
-    def request(self, flow: http.HTTPFlow) -> None:
-        if flow.id in self.restored_ids:
+    def request(self, f: http.HTTPFlow) -> None:
+        if f.id in self.restored_ids:
             return
-        self.save_request(flow)
+        self.save_request(f)
         if self.intercept_request:
-            self._intercept_request(flow)
+            self._intercept_request(f)
 
-    def response(self, flow: http.HTTPFlow) -> None:
-        if flow.id in self.restored_ids:
+    def response(self, f: http.HTTPFlow) -> None:
+        if f.id in self.restored_ids:
             return
-        self.save_response(flow)
+        self.save_response(f)
         if self.intercept_response:
-            self._intercept_response(flow)
+            self._intercept_response(f)

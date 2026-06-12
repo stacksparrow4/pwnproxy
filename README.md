@@ -1,41 +1,166 @@
-# mitmproxy
+# pwnproxy
 
-[![Continuous Integration Status](https://github.com/mitmproxy/mitmproxy/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/mitmproxy/mitmproxy/actions?query=branch%3Amain)
-[![autofix.ci: enabled](https://shields.mitmproxy.org/badge/autofix.ci-yes-success?logo=data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjZmZmIiB2aWV3Qm94PSIwIDAgMTI4IDEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCB0cmFuc2Zvcm09InNjYWxlKDAuMDYxLC0wLjA2MSkgdHJhbnNsYXRlKC0yNTAsLTE3NTApIiBkPSJNMTMyNSAtMzQwcS0xMTUgMCAtMTY0LjUgMzIuNXQtNDkuNSAxMTQuNXEwIDMyIDUgNzAuNXQxMC41IDcyLjV0NS41IDU0djIyMHEtMzQgLTkgLTY5LjUgLTE0dC03MS41IC01cS0xMzYgMCAtMjUxLjUgNjJ0LTE5MSAxNjl0LTkyLjUgMjQxcS05MCAxMjAgLTkwIDI2NnEwIDEwOCA0OC41IDIwMC41dDEzMiAxNTUuNXQxODguNSA4MXExNSA5OSAxMDAuNSAxODAuNXQyMTcgMTMwLjV0MjgyLjUgNDlxMTM2IDAgMjU2LjUgLTQ2IHQyMDkgLTEyNy41dDEyOC41IC0xODkuNXExNDkgLTgyIDIyNyAtMjEzLjV0NzggLTI5OS41cTAgLTEzNiAtNTggLTI0NnQtMTY1LjUgLTE4NC41dC0yNTYuNSAtMTAzLjVsLTI0MyAtMzAwdi01MnEwIC0yNyAzLjUgLTU2LjV0Ni41IC01Ny41dDMgLTUycTAgLTg1IC00MS41IC0xMTguNXQtMTU3LjUgLTMzLjV6TTEzMjUgLTI2MHE3NyAwIDk4IDE0LjV0MjEgNTcuNXEwIDI5IC0zIDY4dC02LjUgNzN0LTMuNSA0OHY2NGwyMDcgMjQ5IHEtMzEgMCAtNjAgNS41dC01NCAxMi41bC0xMDQgLTEyM3EtMSAzNCAtMiA2My41dC0xIDU0LjVxMCA2OSA5IDEyM2wzMSAyMDBsLTExNSAtMjhsLTQ2IC0yNzFsLTIwNSAyMjZxLTE5IC0xNSAtNDMgLTI4LjV0LTU1IC0yNi41bDIxOSAtMjQydi0yNzZxMCAtMjAgLTUuNSAtNjB0LTEwLjUgLTc5dC01IC01OHEwIC00MCAzMCAtNTMuNXQxMDQgLTEzLjV6TTEyNjIgNjE2cS0xMTkgMCAtMjI5LjUgMzQuNXQtMTkzLjUgOTYuNWw0OCA2NCBxNzMgLTU1IDE3MC41IC04NXQyMDQuNSAtMzBxMTM3IDAgMjQ5IDQ1LjV0MTc5IDEyMXQ2NyAxNjUuNWg4MHEwIC0xMTQgLTc3LjUgLTIwNy41dC0yMDggLTE0OXQtMjg5LjUgLTU1LjV6TTgwMyA1OTVxODAgMCAxNDkgMjkuNXQxMDggNzIuNWwyMjEgLTY3bDMwOSA4NnE0NyAtMzIgMTA0LjUgLTUwdDExNy41IC0xOHE5MSAwIDE2NSAzOHQxMTguNSAxMDMuNXQ0NC41IDE0Ni41cTAgNzYgLTM0LjUgMTQ5dC05NS41IDEzNHQtMTQzIDk5IHEtMzcgMTA3IC0xMTUuNSAxODMuNXQtMTg2IDExNy41dC0yMzAuNSA0MXEtMTAzIDAgLTE5Ny41IC0yNnQtMTY5IC03Mi41dC0xMTcuNSAtMTA4dC00MyAtMTMxLjVxMCAtMzQgMTQuNSAtNjIuNXQ0MC41IC01MC41bC01NSAtNTlxLTM0IDI5IC01NCA2NS41dC0yNSA4MS41cS04MSAtMTggLTE0NSAtNzB0LTEwMSAtMTI1LjV0LTM3IC0xNTguNXEwIC0xMDIgNDguNSAtMTgwLjV0MTI5LjUgLTEyM3QxNzkgLTQ0LjV6Ii8+PC9zdmc+)](https://autofix.ci)
-[![Coverage Status](https://shields.mitmproxy.org/codecov/c/github/mitmproxy/mitmproxy/main.svg?label=codecov)](https://codecov.io/gh/mitmproxy/mitmproxy)
-[![Latest Version](https://shields.mitmproxy.org/pypi/v/mitmproxy.svg)](https://pypi.python.org/pypi/mitmproxy)
-[![Supported Python versions](https://shields.mitmproxy.org/pypi/pyversions/mitmproxy.svg)](https://pypi.python.org/pypi/mitmproxy)
+`pwnproxy` is a fork of [mitmproxy](https://github.com/mitmproxy/mitmproxy)
+geared towards web/security testing workflows. It turns the mitmproxy console
+into a Burp-style interception and tinkering tool: every request/response is
+saved to disk as editable raw HTTP, flows can be edited and replayed in Neovim,
+and custom "tools" can be run against the selected flow.
 
-``mitmproxy`` is an interactive, SSL/TLS-capable intercepting proxy with a console
-interface for HTTP/1, HTTP/2, and WebSockets.
+This document summarizes all changes in this fork relative to upstream
+mitmproxy (commit `c4a42d4d5c5de847cb3292fc1a9d9d3bbca54d0e`).
 
-``mitmdump`` is the command-line version of mitmproxy. Think tcpdump for HTTP.
+## New features
 
-``mitmweb`` is a web-based interface for mitmproxy.
+### Raw request/response saving (`mitmproxy/addons/rawsave.py`)
 
-## Installation
+A new `RawSave` addon (registered by default) persists every HTTP request and
+response to disk as numbered, zero-padded files in a `history/` directory in
+the current working directory:
 
-The installation instructions are [here](https://docs.mitmproxy.org/stable/overview-installation).
-If you want to install from source, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+- `000001.req` — the raw HTTP request, prefixed with a `---`-delimited
+  metadata block describing the connection (`host`, `port`, `protocol`,
+  `sni`), with bare `\n` line endings.
+- `000001.req.resp` — the raw HTTP response, with the body decoded
+  (un-gzipped/un-brotli'd), `Content-Encoding`/`Transfer-Encoding` stripped,
+  and `Content-Length` fixed to the decoded body size.
 
-## Documentation & Help
+Additional behavior:
 
-General information, tutorials, and precompiled binaries can be found on the mitmproxy website.
+- **Map directory**: each saved file is also symlinked under a `map/`
+  directory whose structure mirrors the request host and path
+  (e.g. `map/example.com/test/000001.req`). Path traversal segments are
+  sanitized.
+- **Save & restore**: on startup, previously saved `history/*.req`
+  (and matching `.resp`) files are parsed back into flows and restored into
+  the view. The file numbering continues after the highest existing number so
+  nothing is clobbered.
+- **Replay** (`rawsave.replay`): copies the saved `.req`/`.resp` files for the
+  selected flow(s) into a `replay/` directory. An optional name lets you save
+  them as `replay/<name>.req` / `replay/<name>.req.resp`.
+- **Burp-style interactive intercept**: `rawsave.intercept.toggle` and
+  `rawsave.intercept.response.toggle` open each request/response in Neovim for
+  editing before it is forwarded. Special intercept-only keys
+  (`stop_intercepting`, `update_content_length`) can be set in the `---` block
+  while editing; they are never written to disk. `Content-Length` is
+  recomputed automatically unless disabled.
+- Helper commands `req_path` / `resp_path` expose the on-disk paths for other
+  addons (used by `tools` and the editor integration).
 
-[![mitmproxy.org](https://shields.mitmproxy.org/badge/https%3A%2F%2F-mitmproxy.org-blue.svg)](https://mitmproxy.org/)
+### Tools (`mitmproxy/addons/tools.py`)
 
-The documentation for mitmproxy is available on our website:
+A new `Tools` addon lets you run user-provided executable scripts against the
+selected flow. Tools are discovered from:
 
-[![mitmproxy documentation stable](https://shields.mitmproxy.org/badge/docs-stable-brightgreen.svg)](https://docs.mitmproxy.org/stable/)
-[![mitmproxy documentation dev](https://shields.mitmproxy.org/badge/docs-dev-brightgreen.svg)](https://docs.mitmproxy.org/dev/)
+- `~/.config/pwnproxy/tools/` (global)
+- `./.pwnproxy/tools/` (project-local; wins on name collision)
 
-If you have questions on how to use mitmproxy, please
-use GitHub Discussions!
+Pressing `t` in the flow list lets you pick a tool and supply an optional
+label. The tool is run with a JSON document on STDIN:
 
-[![mitmproxy discussions](https://shields.mitmproxy.org/badge/help-github%20discussions-orange.svg)](https://github.com/mitmproxy/mitmproxy/discussions)
+```json
+{
+    "name": "login-fuzz",
+    "method": "GET",
+    "url": "https://example.com/foo?bar=baz",
+    "req":  "/abs/path/to/000001.req",
+    "resp": "/abs/path/to/000001.req.resp"
+}
+```
 
-## Contributing
+Tool stdout is shown in the event log (as alerts); stderr as warnings. An
+example tool that generates an [ffuf](https://github.com/ffuf/ffuf) wrapper
+script is included at `examples/tools/ffuf`.
 
-As an open source project, mitmproxy welcomes contributions of all forms.
+### Neovim editing
 
-[![Dev Guide](https://shields.mitmproxy.org/badge/dev_docs-CONTRIBUTING.md-blue)](./CONTRIBUTING.md)
+- `e` opens the focused flow's saved `.req` file directly in Neovim
+  (`console.edit.focus` / `master.spawn_editor_file`), replacing the old
+  per-component editing submenu.
+
+### SOCKS5 upstream proxy support
+
+Upstream mode can now forward to an upstream SOCKS5 proxy:
+
+```shell
+mitmdump --mode upstream:socks5://proxy:1080
+```
+
+- `mitmproxy/net/server_spec.py`: adds the `socks5` scheme (default port 1080).
+- `mitmproxy/proxy/mode_specs.py`: `UpstreamMode` accepts `socks5`;
+  `ReverseMode` explicitly rejects it.
+- `mitmproxy/proxy/layers/http/_upstream_proxy.py`: implements the SOCKS5
+  handshake (and tunneling).
+- `mitmproxy/addons/upstream_auth.py`: when the upstream is SOCKS5,
+  `--upstream-auth` credentials are sent during the SOCKS5
+  username/password handshake instead of as a `Proxy-Authorization` header.
+
+## Console / UI changes
+
+- **Follow mode by default**: `console_focus_follow` now defaults to `True`
+  (focus follows new flows).
+- **Mouse-wheel scrolling**: scrolling the flow list with the mouse wheel now
+  scrolls the viewport like a webpage instead of moving the selection. Follow
+  mode keeps working while scrolled to the bottom. (`flowlist.py`)
+- **Request ID column**: the flow list shows the zero-padded request number
+  (e.g. `000001`) for each flow. (`common.py`, `flowlist.py`)
+- **Tab navigation**: `shift+tab` cycles the flow detail tabs in reverse
+  (`console.nav.prev` / `m_prev`); opening a flow always starts on the first
+  (Request) tab instead of remembering the previous tab.
+- **Paging keys**: `ctrl+d`/`ctrl+u` page down/up (mirroring `ctrl+f`/`ctrl+b`).
+- **`g`/`G`**: jump to top/bottom while keeping the selection coupled to the
+  scroll position (fixed cursor handling).
+- **Key remaps**:
+  - `i` → toggle interactive request intercept.
+  - `I` → toggle interactive response intercept.
+  - `r` → prompt for a replay file name (`console.replay.prompt`).
+  - `t` → run a tool on the flow.
+  - `e` → edit the flow's `.req` file in Neovim.
+  - Removed `d` (delete) and `D` (duplicate) bindings.
+- **Quick help** updated to reflect the new bindings.
+- `console.choose`/`console.choose.cmd` warn instead of erroring when there are
+  no choices available.
+
+### Terminal robustness (`master.py`)
+
+The urwid main loop start/stop is now guarded (`_ui_start`/`_ui_stop`,
+`_loop_started`) so that interrupting mitmproxy (e.g. `ctrl+c`) or spawning an
+external editor no longer corrupts the terminal by leaving it in raw mode / the
+alternate buffer.
+
+## Persisted view filter (`mitmproxy/addons/view.py`)
+
+The current view filter is persisted to `view-filter.txt` in the working
+directory and restored on startup (an explicit `--view-filter` takes
+precedence). `console_focus_follow` defaults to `True` here too.
+
+## Other behavioral changes
+
+- **Anticache enabled by default** (`mitmproxy/addons/anticache.py`):
+  `anticache` now defaults to `True`, stripping headers that may cause `304 Not
+  Modified` responses. (Note: the CHANGELOG/commit history also references
+  disabling cache by default.)
+
+## Tooling / project
+
+- **Nix flake** (`flake.nix`, `flake.lock`): builds `pwnproxy` as an overridden
+  `mitmproxy` package (tests disabled).
+- `test.sh`: helper to run a sandboxed dev shell with a local virtualenv.
+- `.gitignore`: ignores `*.req`, `*.resp`, `*.req.orig`, `*.resp.orig`,
+  `view-filter.txt`, and `.box-venv/`.
+- `AGENTS.md`: adds a note to run `uv sync --reinstall` if the environment
+  seems broken.
+
+## Tests
+
+New/updated tests accompany the changes, including:
+
+- `test/mitmproxy/addons/test_rawsave.py`
+- `test/mitmproxy/addons/test_tools.py`
+- `test/mitmproxy/addons/test_upstream_auth.py`
+- `test/mitmproxy/addons/test_view.py`
+- `test/mitmproxy/proxy/layers/http/test_http.py`
+- `test/mitmproxy/proxy/test_mode_specs.py`
+- `test/mitmproxy/tools/console/test_flowlist.py`
+- `test/mitmproxy/tools/console/test_flowview.py`
+- `test/mitmproxy/tools/console/test_master.py`
+- `test/mitmproxy/tools/console/test_common.py`

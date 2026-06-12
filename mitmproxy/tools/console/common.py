@@ -10,6 +10,7 @@ from publicsuffix2 import get_tld
 
 from mitmproxy import dns
 from mitmproxy import flow
+from mitmproxy.addons.rawsave import NUMBER_WIDTH
 from mitmproxy.dns import DNSFlow
 from mitmproxy.http import HTTPFlow
 from mitmproxy.tcp import TCPFlow
@@ -509,7 +510,7 @@ def format_http_flow_table(
         )
     ]
 
-    items.append(fcol(fixlen(filename or "", 6), "text"))
+    items.append(fcol(fixlen(filename or "", NUMBER_WIDTH), "text"))
 
     if intercepted and not response_code:
         request_style = "intercept"

@@ -684,7 +684,7 @@ def test_intercept_injects_keys_not_persisted(tmp_path):
         ra.intercept_toggle()
         ra.request(f)
 
-    # the file opened in Neovim contains the special keys inside the --- block
+    # the file opened in the editor contains the special keys inside the --- block
     assert seen[0].startswith(b"---\n")
     assert b"stop_intercepting: false" in seen[0]
     assert b"update_content_length: true" in seen[0]
@@ -707,7 +707,7 @@ def test_intercept_response_gets_metadata_section(tmp_path):
         ra.intercept_response_toggle()
         ra.response(f)
 
-    # the response file shown in Neovim gets a --- block with the special keys
+    # the response file shown in the editor gets a --- block with the special keys
     assert seen[0].startswith(b"---\n")
     assert b"stop_intercepting: false" in seen[0]
     # the saved .resp keeps neither the --- block nor the keys

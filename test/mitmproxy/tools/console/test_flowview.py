@@ -55,7 +55,7 @@ async def test_edit(console, monkeypatch, caplog):
     opened = []
     monkeypatch.setattr(console, "spawn_editor_file", lambda path: opened.append(path))
 
-    # console.edit.focus now opens the flow's saved .req file in Neovim.
+    # console.edit.focus now opens the flow's saved .req file in an external editor.
     rawsave = console.addons.get("rawsave")
     monkeypatch.setattr(rawsave, "req_path", lambda flow: "/tmp/1.req")
 
