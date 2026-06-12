@@ -216,86 +216,111 @@ class Socks5UpstreamProxy(tunnel.TunnelLayer):
         self, data: bytes
     ) -> layer.CommandGenerator[tuple[bool, str | None]]:
         self.buf += data
-        proxyaddr = human.format_address(self.tunnel_connection.address)
+        handlers = {
+            Socks5HandshakeState.GREETING: self._recv_greeting,
+            Socks5HandshakeState.AUTHENTICATING: self._recv_authenticating,
+            Socks5HandshakeState.CONNECTING: self._recv_connecting,
+        }
+        # Each handler either returns a terminal ``(done, err)`` result or
+        # ``None`` to signal that it advanced the handshake to the next state,
+        # in which case we re-dispatch to process any already-buffered data.
+        while True:
+            handler = handlers.get(self.state)
+            if handler is None:
+                raise AssertionError(self.state)  # pragma: no cover
+            result = yield from handler()
+            if result is not None:
+                return result
 
-        if self.state is Socks5HandshakeState.GREETING:
-            if len(self.buf) < 2:
-                return False, None
-            version, method = self.buf[0], self.buf[1]
-            self.buf = self.buf[2:]
-            if version != SOCKS5_VERSION:
-                return (
-                    False,
-                    f"Invalid SOCKS version from upstream proxy {proxyaddr}. "
-                    f"Expected 0x05, got 0x{version:02x}.",
-                )
-            credentials = self._credentials()
-            if method == SOCKS5_METHOD_NO_AUTHENTICATION_REQUIRED:
-                yield from self._send_connect_request()
-            elif (
-                method == SOCKS5_METHOD_USER_PASSWORD_AUTHENTICATION
-                and credentials is not None
-            ):
-                user, password = credentials
-                user_bytes = user.encode()
-                pass_bytes = password.encode()
-                auth = (
-                    bytes([SOCKS5_AUTH_VERSION, len(user_bytes)])
-                    + user_bytes
-                    + bytes([len(pass_bytes)])
-                    + pass_bytes
-                )
-                yield commands.SendData(self.tunnel_connection, auth)
-                self.state = Socks5HandshakeState.AUTHENTICATING
-            else:
-                return (
-                    False,
-                    f"Upstream SOCKS5 proxy {proxyaddr} did not accept an "
-                    f"authentication method we support.",
-                )
+    def _proxyaddr(self) -> str:
+        return human.format_address(self.tunnel_connection.address)
 
-        if self.state is Socks5HandshakeState.AUTHENTICATING:
-            if len(self.buf) < 2:
-                return False, None
-            version, status = self.buf[0], self.buf[1]
-            self.buf = self.buf[2:]
-            if version != SOCKS5_AUTH_VERSION or status != 0x00:
-                return (
-                    False,
-                    f"Upstream SOCKS5 proxy {proxyaddr} refused authentication.",
-                )
+    def _recv_greeting(
+        self,
+    ) -> layer.CommandGenerator[tuple[bool, str | None] | None]:
+        if len(self.buf) < 2:
+            return False, None  # need more data
+        version, method = self.buf[0], self.buf[1]
+        self.buf = self.buf[2:]
+        if version != SOCKS5_VERSION:
+            return (
+                False,
+                f"Invalid SOCKS version from upstream proxy {self._proxyaddr()}. "
+                f"Expected 0x05, got 0x{version:02x}.",
+            )
+        credentials = self._credentials()
+        if method == SOCKS5_METHOD_NO_AUTHENTICATION_REQUIRED:
             yield from self._send_connect_request()
+            return None
+        elif (
+            method == SOCKS5_METHOD_USER_PASSWORD_AUTHENTICATION
+            and credentials is not None
+        ):
+            user, password = credentials
+            user_bytes = user.encode()
+            pass_bytes = password.encode()
+            auth = (
+                bytes([SOCKS5_AUTH_VERSION, len(user_bytes)])
+                + user_bytes
+                + bytes([len(pass_bytes)])
+                + pass_bytes
+            )
+            yield commands.SendData(self.tunnel_connection, auth)
+            self.state = Socks5HandshakeState.AUTHENTICATING
+            return None
+        else:
+            return (
+                False,
+                f"Upstream SOCKS5 proxy {self._proxyaddr()} did not accept an "
+                f"authentication method we support.",
+            )
 
-        if self.state is Socks5HandshakeState.CONNECTING:
-            if len(self.buf) < 4:
-                return False, None
-            version, reply, _, atyp = self.buf[0], self.buf[1], self.buf[2], self.buf[3]
-            if atyp == SOCKS5_ATYP_IPV4_ADDRESS:
-                message_len = 4 + 4 + 2
-            elif atyp == SOCKS5_ATYP_IPV6_ADDRESS:
-                message_len = 4 + 16 + 2
-            elif atyp == SOCKS5_ATYP_DOMAINNAME:
-                if len(self.buf) < 5:
-                    return False, None
-                message_len = 4 + 1 + self.buf[4] + 2
-            else:
-                return (
-                    False,
-                    f"Upstream SOCKS5 proxy {proxyaddr} returned unknown "
-                    f"address type {atyp}.",
-                )
-            if len(self.buf) < message_len:
-                return False, None
-            self.buf = self.buf[message_len:]
-            if reply != SOCKS5_REP_SUCCEEDED:
-                reason = SOCKS5_REP_MESSAGES.get(reply, f"unknown error 0x{reply:02x}")
-                return (
-                    False,
-                    f"Upstream SOCKS5 proxy {proxyaddr} refused connection: {reason}.",
-                )
-            if self.buf:
-                yield from self.receive_data(self.buf)
-                self.buf = b""
-            return True, None
+    def _recv_authenticating(
+        self,
+    ) -> layer.CommandGenerator[tuple[bool, str | None] | None]:
+        if len(self.buf) < 2:
+            return False, None  # need more data
+        version, status = self.buf[0], self.buf[1]
+        self.buf = self.buf[2:]
+        if version != SOCKS5_AUTH_VERSION or status != 0x00:
+            return (
+                False,
+                f"Upstream SOCKS5 proxy {self._proxyaddr()} refused authentication.",
+            )
+        yield from self._send_connect_request()
+        return None
 
-        raise AssertionError(self.state)  # pragma: no cover
+    def _recv_connecting(
+        self,
+    ) -> layer.CommandGenerator[tuple[bool, str | None] | None]:
+        if len(self.buf) < 4:
+            return False, None  # need more data
+        version, reply, _, atyp = self.buf[0], self.buf[1], self.buf[2], self.buf[3]
+        if atyp == SOCKS5_ATYP_IPV4_ADDRESS:
+            message_len = 4 + 4 + 2
+        elif atyp == SOCKS5_ATYP_IPV6_ADDRESS:
+            message_len = 4 + 16 + 2
+        elif atyp == SOCKS5_ATYP_DOMAINNAME:
+            if len(self.buf) < 5:
+                return False, None  # need more data
+            message_len = 4 + 1 + self.buf[4] + 2
+        else:
+            return (
+                False,
+                f"Upstream SOCKS5 proxy {self._proxyaddr()} returned unknown "
+                f"address type {atyp}.",
+            )
+        if len(self.buf) < message_len:
+            return False, None  # need more data
+        self.buf = self.buf[message_len:]
+        if reply != SOCKS5_REP_SUCCEEDED:
+            reason = SOCKS5_REP_MESSAGES.get(reply, f"unknown error 0x{reply:02x}")
+            return (
+                False,
+                f"Upstream SOCKS5 proxy {self._proxyaddr()} refused connection: "
+                f"{reason}.",
+            )
+        if self.buf:
+            yield from self.receive_data(self.buf)
+            self.buf = b""
+        return True, None

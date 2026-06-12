@@ -67,15 +67,45 @@ class RawSave:
         return highest
 
     @staticmethod
-    def _name(n: int, suffix: str) -> str:
-        """Build a file name, zero-padded to six digits, e.g. ``000001.req``.
+    def _file_name(base: str, suffix: str) -> str:
+        """Build a file name from a ``base`` and a ``req``/``resp`` suffix.
 
         Response files share the request file name with an additional ``.resp``
-        suffix (e.g. ``000001.req.resp``).
+        suffix (e.g. ``000001.req`` -> ``000001.req.resp``).
         """
         if suffix == "resp":
-            return f"{n:0{NUMBER_WIDTH}d}.req.resp"
-        return f"{n:0{NUMBER_WIDTH}d}.{suffix}"
+            return f"{base}.req.resp"
+        return f"{base}.{suffix}"
+
+    @classmethod
+    def _name(cls, n: int, suffix: str) -> str:
+        """File name for flow number ``n``, zero-padded (e.g. ``000001.req``)."""
+        return cls._file_name(f"{n:0{NUMBER_WIDTH}d}", suffix)
+
+    @staticmethod
+    def _serialize_block(meta: dict[str, str]) -> bytes:
+        """Serialize a metadata mapping into a ``---``-delimited block."""
+        lines = ["---", *(f"{k}: {v}" for k, v in meta.items()), "---"]
+        text = "".join(f"{line}\n" for line in lines)
+        return text.encode("utf-8", "surrogateescape")
+
+    @staticmethod
+    def _parse_block(raw: bytes) -> tuple[dict[str, str], bytes]:
+        """Split a leading ``---``-delimited block from ``raw``.
+
+        Returns the parsed ``key: value`` pairs and the bytes following the
+        block. If ``raw`` does not start with a ``---`` block, an empty mapping
+        and the original bytes are returned.
+        """
+        if not raw.startswith(b"---\n"):
+            return {}, raw
+        _, block, rest = raw.split(b"---\n", 2)
+        meta: dict[str, str] = {}
+        for line in block.splitlines():
+            key, sep, value = line.partition(b":")
+            if sep:
+                meta[key.strip().decode()] = value.strip().decode()
+        return meta, rest
 
     def _number_for(self, f: http.HTTPFlow) -> int:
         n = self.flow_numbers.get(f.id)
@@ -105,18 +135,17 @@ class RawSave:
 
         default_port = 443 if protocol == "https" else 80
 
-        lines = ["---"]
+        # Only non-default fields are written; order is significant for the
+        # on-disk format (host, port, protocol, sni).
+        meta: dict[str, str] = {}
         if request.host != header_host:
-            lines.append(f"host: {request.host}")
+            meta["host"] = request.host
         if request.port != default_port:
-            lines.append(f"port: {request.port}")
-        lines.append(f"protocol: {protocol}")
+            meta["port"] = str(request.port)
+        meta["protocol"] = protocol
         if sni and sni != header_host:
-            lines.append(f"sni: {sni}")
-        lines.append("---")
-
-        meta = "".join(f"{line}\n" for line in lines)
-        return meta.encode("utf-8", "surrogateescape")
+            meta["sni"] = sni
+        return self._serialize_block(meta)
 
     def _assemble_request_head(self, request: http.Request) -> bytes:
         """
@@ -235,14 +264,10 @@ class RawSave:
     def _parse_request_file(self, req_bytes: bytes) -> tuple[http.Request, str | None]:
         """Parse a saved ``.req`` file into a Request and its SNI."""
         # A valid request file has a leading ``---``-delimited metadata block;
-        # if it's missing this unpack raises ValueError, which callers handle.
-        _, meta_block, rest = req_bytes.split(b"---\n", 2)
-
-        meta: dict[str, str] = {}
-        for line in meta_block.splitlines():
-            key, sep, value = line.partition(b":")
-            if sep:
-                meta[key.strip().decode()] = value.strip().decode()
+        # if it's missing we raise ValueError, which callers handle.
+        if not req_bytes.startswith(b"---\n"):
+            raise ValueError("missing metadata block")
+        meta, rest = self._parse_block(req_bytes)
 
         head_lines, body = self._parse_head_and_body(rest)
         request_line = head_lines[0].split(b" ")
@@ -361,47 +386,38 @@ class RawSave:
             if n is None:
                 logger.warning("No saved request file for this flow.")
                 continue
+            # When a name is given the files are renamed (e.g. <name>.req);
+            # otherwise they keep their zero-padded number.
+            base = name or f"{n:0{NUMBER_WIDTH}d}"
             try:
                 replay_dir.mkdir(parents=True, exist_ok=True)
                 for suffix in ("req", "resp"):
                     src = self.directory / self._name(n, suffix)
-                    if name:
-                        dst_name = (
-                            f"{name}.req.resp"
-                            if suffix == "resp"
-                            else f"{name}.{suffix}"
-                        )
-                    else:
-                        dst_name = self._name(n, suffix)
                     if src.exists():
-                        shutil.copyfile(src, replay_dir / dst_name)
+                        dst = replay_dir / self._file_name(base, suffix)
+                        shutil.copyfile(src, dst)
             except OSError as e:
                 logger.error(f"Error while copying to {replay_dir}: {e}")
                 continue
-            if name:
-                logging.log(ALERT, str(replay_dir / f"{name}.req"))
-            else:
-                logging.log(ALERT, str(replay_dir / self._name(n, "req")))
+            logging.log(ALERT, str(replay_dir / self._file_name(base, "req")))
+
+    def _path_for(self, f: http.HTTPFlow, suffix: str) -> Path | None:
+        """Return the path of the saved ``suffix`` file for ``f``, if it exists."""
+        n = self.flow_numbers.get(f.id)
+        if n is None:
+            return None
+        path = self.directory / self._name(n, suffix)
+        if not path.exists():
+            return None
+        return path
 
     def req_path(self, f: http.HTTPFlow) -> Path | None:
         """Return the path of the ``.req`` file for ``f``, if it exists."""
-        n = self.flow_numbers.get(f.id)
-        if n is None:
-            return None
-        path = self.directory / self._name(n, "req")
-        if not path.exists():
-            return None
-        return path
+        return self._path_for(f, "req")
 
     def resp_path(self, f: http.HTTPFlow) -> Path | None:
         """Return the path of the ``.resp`` file for ``f``, if it exists."""
-        n = self.flow_numbers.get(f.id)
-        if n is None:
-            return None
-        path = self.directory / self._name(n, "resp")
-        if not path.exists():
-            return None
-        return path
+        return self._path_for(f, "resp")
 
     # Burp-style interactive intercept
 
@@ -428,15 +444,14 @@ class RawSave:
     }
 
     def _inject_intercept_keys(self, content: bytes, has_metadata: bool) -> bytes:
-        block = "".join(
-            f"{k}: {str(v).lower()}\n" for k, v in self._INTERCEPT_KEYS.items()
-        ).encode()
+        intercept = {k: str(v).lower() for k, v in self._INTERCEPT_KEYS.items()}
         if has_metadata:
-            # Requests already start with a "---" block; insert the keys into it.
-            _, rest = content.split(b"---\n", 1)
-            return b"---\n" + block + rest
+            # Requests already start with a "---" block; merge the keys into it,
+            # listing the intercept keys first.
+            meta, rest = self._parse_block(content)
+            return self._serialize_block({**intercept, **meta}) + rest
         # Responses have no "---" block on disk; add a temporary one.
-        return b"---\n" + block + b"---\n" + content
+        return self._serialize_block(intercept) + content
 
     def _extract_intercept_keys(
         self, content: bytes, has_metadata: bool
@@ -444,22 +459,15 @@ class RawSave:
         opts = dict(self._INTERCEPT_KEYS)
         if not content.startswith(b"---\n"):
             return opts, content
-        _, block, rest = content.split(b"---\n", 2)
-        kept = []
-        for line in block.splitlines():
-            key, sep, value = line.partition(b":")
-            name = key.strip().decode()
+        meta, rest = self._parse_block(content)
+        kept: dict[str, str] = {}
+        for name, value in meta.items():
             if name in self._INTERCEPT_KEYS:
-                opts[name] = value.strip().lower() == b"true"
+                opts[name] = value.lower() == "true"
             else:
-                kept.append(line)
-        if has_metadata:
-            kept_block = b"\n".join(kept)
-            cleaned = (
-                b"---\n" + (kept_block + b"\n" if kept_block else b"") + b"---\n" + rest
-            )
-        else:
-            cleaned = rest
+                kept[name] = value
+        # Requests keep their (keys-stripped) metadata block; responses drop it.
+        cleaned = self._serialize_block(kept) + rest if has_metadata else rest
         return opts, cleaned
 
     @staticmethod
@@ -537,11 +545,8 @@ class RawSave:
         f.request = request
 
     def _intercept_response(self, f: http.HTTPFlow) -> None:
-        n = self.flow_numbers.get(f.id)
-        if n is None:
-            return
-        path = self.directory / self._name(n, "resp")
-        if not path.exists():
+        path = self.resp_path(f)
+        if path is None:
             return
         result = self._run_intercept(path, has_metadata=False)
         if result is None:
