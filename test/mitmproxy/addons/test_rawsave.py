@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 
 from mitmproxy.addons import rawsave
@@ -243,109 +242,55 @@ def test_uncreatable_directory_logs_error(tmp_path, caplog):
     assert "Error while writing" in caplog.text
 
 
-async def test_restore_roundtrip(tmp_path):
+def test_does_not_load_from_disk_on_startup(tmp_path):
     # First, save a flow.
     ra = rawsave.RawSave(directory=str(tmp_path))
     with taddons.context(ra):
         f = tflow.tflow(resp=True)
-        f.request.host = "example.com"
-        f.request.port = 443
-        f.request.scheme = b"https"
-        f.request.method = "GET"
-        f.request.path = "/"
-        f.request.http_version = "HTTP/1.1"
-        f.request.headers["Host"] = "example.com"
-        f.request.content = b"hello"
-        f.server_conn.sni = "example.com"
-        f.response.status_code = 200
-        f.response.headers["content-type"] = "text/html"
-        f.response.content = b"<html></html>"
         ra.request(f)
         ra.response(f)
 
-    # Now restore in a fresh addon instance.
+    # A fresh addon instance must not expose any restore behavior and must not
+    # load the previously saved flows.
     ra2 = rawsave.RawSave(directory=str(tmp_path))
-    flows = ra2._restored_flows()
-    assert len(flows) == 1
-    rf = flows[0]
-    assert rf.request.method == "GET"
-    assert rf.request.path == "/"
-    assert rf.request.http_version == "HTTP/1.1"
-    assert rf.request.host == "example.com"
-    assert rf.request.port == 443
-    assert rf.request.scheme == "https"
-    assert rf.request.headers["Host"] == "example.com"
-    assert rf.request.content == b"hello"
-    assert rf.server_conn.sni == "example.com"
-    assert rf.response is not None
-    assert rf.response.status_code == 200
-    assert rf.response.reason == "OK"
-    assert rf.response.headers["content-type"] == "text/html"
-    assert rf.response.content == b"<html></html>"
+    assert not hasattr(ra2, "_restored_flows")
+    assert not hasattr(ra2, "restore")
+    assert not hasattr(ra2, "running")
+    assert ra2.flow_numbers == {}
 
 
-async def test_restore_loads_flows(tmp_path):
+def test_counter_starts_after_existing_files(tmp_path):
+    # Pre-existing files from a previous run must not be overwritten.
+    (tmp_path / "000001.req").write_bytes(b"old")
+    (tmp_path / "000002.req").write_bytes(b"old")
+    (tmp_path / "000002.req.resp").write_bytes(b"old")
+
     ra = rawsave.RawSave(directory=str(tmp_path))
+    assert ra.counter == 2
     with taddons.context(ra):
         f = tflow.tflow(resp=True)
         ra.request(f)
         ra.response(f)
 
-    ra2 = rawsave.RawSave(directory=str(tmp_path))
-    loaded = []
-    with taddons.context(ra2) as tctx:
-
-        async def fake_load_flow(flow):
-            loaded.append(flow)
-
-        tctx.master.load_flow = fake_load_flow
-        await ra2.restore()
-    assert len(loaded) == 1
-    # restored flows are tracked so they are not re-saved
-    assert loaded[0].id in ra2.restored_ids
+    # New flow is written starting from the next available number.
+    assert (tmp_path / "000003.req").exists()
+    assert (tmp_path / "000003.req.resp").exists()
+    # Existing files are untouched.
+    assert (tmp_path / "000001.req").read_bytes() == b"old"
+    assert (tmp_path / "000002.req").read_bytes() == b"old"
 
 
-def test_restored_flows_are_not_resaved(tmp_path):
+def test_parse_block_without_block():
+    assert rawsave.RawSave._parse_block(b"no block here") == ({}, b"no block here")
+
+
+def test_parse_connect_request_file(tmp_path):
     ra = rawsave.RawSave(directory=str(tmp_path))
-    with taddons.context(ra):
-        f = tflow.tflow(resp=True)
-        ra.request(f)
-        ra.response(f)
-
-    ra2 = rawsave.RawSave(directory=str(tmp_path))
-    restored = ra2._restored_flows()[0]
-    before = sorted(p.name for p in tmp_path.iterdir())
-    # Replaying lifecycle events for a restored flow must not write new files.
-    ra2.request(restored)
-    ra2.response(restored)
-    after = sorted(p.name for p in tmp_path.iterdir())
-    assert before == after
-
-
-def test_connect_request_restores_authority_form(tmp_path):
-    ra = rawsave.RawSave(directory=str(tmp_path))
-    with taddons.context(ra):
-        f = tflow.tflow()
-        f.request.method = "CONNECT"
-        f.request.authority = "example.com:443"
-        ra.request(f)
-
-    ra2 = rawsave.RawSave(directory=str(tmp_path))
-    rf = ra2._restored_flows()[0]
-    assert rf.request.method == "CONNECT"
-    assert rf.request.authority == "example.com:443"
-
-
-def test_restore_skips_corrupt_files(tmp_path, caplog):
-    (tmp_path / "000001.req").write_bytes(b"not a valid req file")
-    ra = rawsave.RawSave(directory=str(tmp_path))
-    assert ra._restored_flows() == []
-    assert "Could not restore" in caplog.text
-
-
-def test_restore_missing_directory(tmp_path):
-    ra = rawsave.RawSave(directory=str(tmp_path / "missing"))
-    assert ra._restored_flows() == []
+    raw = b"---\nprotocol: http\n---\nCONNECT example.com:443 HTTP/1.1\n\n"
+    request, _ = ra._parse_request_file(raw)
+    assert request.method == "CONNECT"
+    assert request.authority == "example.com:443"
+    assert request.path == ""
 
 
 def test_parse_headers_skips_empty_lines():
@@ -353,26 +298,6 @@ def test_parse_headers_skips_empty_lines():
     assert headers["Host"] == "example.com"
     assert headers["X-Test"] == "y"
     assert len(headers.fields) == 2
-
-
-async def test_running_schedules_restore(tmp_path):
-    ra = rawsave.RawSave(directory=str(tmp_path))
-    with taddons.context(ra):
-        f = tflow.tflow(resp=True)
-        ra.request(f)
-        ra.response(f)
-
-    ra2 = rawsave.RawSave(directory=str(tmp_path))
-    loaded = []
-    with taddons.context(ra2) as tctx:
-
-        async def fake_load_flow(flow):
-            loaded.append(flow)
-
-        tctx.master.load_flow = fake_load_flow
-        ra2.running()
-        await asyncio.sleep(0.01)
-    assert len(loaded) == 1
 
 
 def test_req_path(tmp_path):
@@ -387,18 +312,6 @@ def test_req_path(tmp_path):
     # number known but file removed -> None
     (tmp_path / "000001.req").unlink()
     assert ra.req_path(f) is None
-
-
-def test_req_path_for_restored_flow(tmp_path):
-    ra = rawsave.RawSave(directory=str(tmp_path))
-    with taddons.context(ra):
-        f = tflow.tflow(resp=True)
-        ra.request(f)
-        ra.response(f)
-
-    ra2 = rawsave.RawSave(directory=str(tmp_path))
-    restored = ra2._restored_flows()[0]
-    assert ra2.req_path(restored) == tmp_path / "000001.req"
 
 
 def test_filename_zero_padding():
