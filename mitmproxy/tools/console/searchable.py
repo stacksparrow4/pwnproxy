@@ -32,13 +32,35 @@ class Searchable(urwid.ListBox):
         elif key == "N":
             self.find_next(True)
         elif key == "m_start":
-            self.set_focus(0)
+            self._jump_to(size, 0, to_start=True)
             self.walker._modified()
         elif key == "m_end":
-            self.set_focus(len(self.walker) - 1)
+            self._jump_to(size, len(self.walker) - 1, to_start=False)
             self.walker._modified()
         else:
             return super().keypress(size, key)
+
+    def _jump_to(self, size, position, to_start):
+        """Move focus to ``position`` and scroll it fully into view.
+
+        Unlike a plain ``set_focus``, this also handles the case where the
+        target is a single widget taller than the viewport (e.g. a whole
+        response body rendered as one urwid.Text). In that case we scroll
+        *within* the widget so that "go to start"/"go to end" reveal its top
+        or bottom rather than anchoring its top to the viewport.
+        """
+        maxcol, maxrow = size
+        # Set the focus directly on the walker and clear any pending focus so
+        # urwid doesn't re-align the widget's top on the next render (which
+        # happens when the target is partially visible and would prevent us
+        # from scrolling to the bottom of a tall widget).
+        self.body.set_focus(position)
+        self.set_focus_pending = None
+        focus_widget, _ = self.body.get_focus()
+        rows = focus_widget.rows((maxcol,), True)
+        # offset 0 -> top of focus at viewport top (go to start);
+        # offset maxrow - rows -> bottom of focus at viewport bottom (go to end).
+        self.shift_focus(size, 0 if to_start else maxrow - rows)
 
     def set_search(self, text):
         self.last_search = text
