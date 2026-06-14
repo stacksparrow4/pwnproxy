@@ -18,11 +18,19 @@
   complementing the existing `tab` shortcut.
 - The current view filter is now persisted to `view-filter.txt` in the working
   directory and restored on startup.
+- mitmproxy: "Focus follows new flows" no longer drags the selected flow around
+  unexpectedly. The selected flow only jumps to newly arriving flows while it
+  is the last flow in the list, so moving the cursor up keeps it pinned in
+  place. The viewport independently keeps tailing new flows while it is
+  scrolled to the bottom (via either the mouse wheel or the keyboard).
 - The `anticache` option now defaults to `True`, stripping request headers that
   might cause the server to return a 304 Not Modified response.
 - mitmproxy: Scrolling the flow list with the mouse wheel now scrolls the
   viewport like a webpage instead of moving the selected flow. Follow mode
   keeps working while the list is scrolled to the bottom.
+- mitmproxy: Fix the Request/Response detail view jumping back to the top while
+  scrolling when the displayed flow updates (e.g. during live capture). The
+  scroll position is now preserved across re-renders of the same tab.
 - Fix contentview detection for XML files that start with CRLF.
   ([#8243](https://github.com/mitmproxy/mitmproxy/pull/8243), @ADiTyaRaj8969)
 - mitmweb: Fix the filter input losing half-typed text on unrelated parent re-renders.

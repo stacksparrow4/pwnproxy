@@ -120,6 +120,14 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
         )
 
     def keypress(self, size, key):
+        result = self._keypress(size, key)
+        # Following should only be active while the viewport is at the bottom,
+        # so re-evaluate after every key (navigation may have moved us away
+        # from -- or back to -- the end of the list).
+        self._update_follow(size)
+        return result
+
+    def _keypress(self, size, key):
         walker = self.body
         if key == "m_start":
             self.master.commands.execute("view.focus.go 0")
@@ -141,7 +149,76 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
             self._invalidate()
         elif key == "m_select":
             self.master.commands.execute("console.view.flow @focus")
+        elif walker.focus_override is not None:
+            # Any other key is navigation handled by urwid's ListBox (up/down,
+            # page up/down, ...). urwid derives the movement from the widget
+            # reported by ``get_focus()``, which while a scroll anchor is
+            # active is the top-of-viewport flow rather than the selected one.
+            # Re-couple the viewport to the selected flow first so that
+            # navigation continues from the selection instead of jumping to
+            # wherever the user scrolled to.
+            walker.focus_override = None
+            walker.follow_bottom = False
+            index = self.master.view.focus.index
+            if index is not None:
+                self.change_focus(size, index)
         return urwid.ListBox.keypress(self, size, key)
+
+    def _at_bottom(self, size) -> bool:
+        # Whether the viewport is scrolled all the way to the bottom, i.e. the
+        # last flow is shown at the bottom edge. This is about the *viewport*,
+        # not the selection: moving the cursor up while the last flow stays
+        # visible does not count as scrolling up.
+        if self.master.view.get_length() == 0:
+            return True
+        top = self._viewport_top(size)
+        if top is None:
+            return True
+        return top >= self._max_scroll_anchor(size)
+
+    def _viewport_top(self, size) -> int | None:
+        # The flow index currently rendered at the top of the viewport.
+        walker = self.body
+        if walker.focus_override is not None:
+            return walker.focus_override
+        middle, top_info, _bottom = self.calculate_visible(size, focus=True)
+        if middle is None:
+            return None
+        _trim_top, fill_above = top_info
+        return fill_above[-1].position if fill_above else middle.focus_pos
+
+    def _update_follow(self, size) -> None:
+        # "Following" is really two independent behaviours that we gate
+        # separately:
+        #
+        # 1. The *selected flow* (cursor) only jumps to newly arriving flows
+        #    while it is itself the last flow in the list. Moving the cursor up
+        #    therefore pins the focused flow in place, even as new flows
+        #    arrive.
+        # 2. The *viewport* keeps tailing new flows as long as it shows the end
+        #    of the list, regardless of where the cursor is.
+        #
+        # ``console_focus_follow`` is the user's master switch for both.
+        walker = self.body
+        length = self.master.view.get_length()
+        user_follow = self.master.options.console_focus_follow
+
+        index = self.master.view.focus.index
+        cursor_at_bottom = length == 0 or index == length - 1
+        self.master.view.focus_follow = user_follow and cursor_at_bottom
+
+        # If the cursor has been moved up but the viewport still shows the
+        # bottom, switch to a detached scroll anchor so the viewport keeps
+        # tailing new flows without dragging the selection along.
+        if (
+            user_follow
+            and walker.focus_override is None
+            and not cursor_at_bottom
+            and self._at_bottom(size)
+        ):
+            walker.focus_override = self._max_scroll_anchor(size)
+            walker.follow_bottom = True
+            self.shift_focus(size, 0)
 
     def mouse_event(self, size, event, button, col, row, focus):
         # Scroll the flow list with the mouse wheel (buttons 4/5) instead of
@@ -161,16 +238,10 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
             return
         walker = self.body
 
-        if walker.focus_override is not None:
-            top = walker.focus_override
-        else:
-            # No active scroll anchor yet: continue from whatever is currently
-            # shown at the top of the viewport.
-            middle, top_info, _bottom = self.calculate_visible(size, focus=True)
-            if middle is None:
-                return
-            _trim_top, fill_above = top_info
-            top = fill_above[-1].position if fill_above else middle.focus_pos
+        # Continue from whatever is currently shown at the top of the viewport.
+        top = self._viewport_top(size)
+        if top is None:
+            return
 
         max_anchor = self._max_scroll_anchor(size)
         if up:
@@ -184,6 +255,7 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
         walker.focus_override = top
         # Keep following new flows only while scrolled to the very bottom.
         walker.follow_bottom = top >= max_anchor
+        self._update_follow(size)
         walker._modified()
         # Render the scroll anchor at the very top of the viewport.
         self.shift_focus(size, 0)
@@ -195,6 +267,7 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
         # newly arriving flows remain visible (follow mode).
         if walker.follow_bottom and walker.focus_override is not None:
             walker.focus_override = self._max_scroll_anchor(size)
+        self._update_follow(size)
         return super().render(size, focus)
 
     def _max_scroll_anchor(self, size) -> int:
