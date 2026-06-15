@@ -1,0 +1,5 @@
+- Option to set global socks proxy! So that I can always use exit node on work machine
+- Sometimes the keyboard breaks (mouse scroll still works) Usually when tabbing back in.
+- Add a --load argument to load from disk
+- Don't tie to VIM. Instead provide customisable command for opening request file
+    - Stop opening in VIM from blocking

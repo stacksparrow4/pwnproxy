@@ -1,6 +1,7 @@
 import csv
 import logging
 from collections.abc import Sequence
+from pathlib import Path
 
 import mitmproxy.types
 from mitmproxy import command
@@ -305,17 +306,40 @@ class ConsoleAddon:
         Prompt the user for a replay file name, then copy the saved
         request/response files for the given flows into the replay directory
         under that name (replay/<name>.req and replay/<name>.req.resp).
+
+        If a file with that name already exists in the replay directory, the
+        user is asked to confirm the overwrite before the files are copied.
         """
+
+        def do_replay(name: str) -> None:
+            try:
+                self.master.commands.call("rawsave.replay", flows, name)
+            except exceptions.CommandError as e:
+                logger.error(str(e))
 
         def callback(name: str) -> None:
             name = name.strip()
             if not name:
                 logger.warning("No replay file name given.")
                 return
-            try:
-                self.master.commands.call("rawsave.replay", flows, name)
-            except exceptions.CommandError as e:
-                logger.error(str(e))
+            replay_dir = Path("replay")
+            overwrites = any(
+                (replay_dir / f"{name}.{suffix}").exists()
+                for suffix in ("req", "req.resp")
+            )
+            if overwrites:
+
+                def confirm(key: str) -> None:
+                    if key == "y":
+                        do_replay(name)
+
+                signals.status_prompt_onekey.send(
+                    prompt=f"Overwrite existing replay file {name}",
+                    keys=[("yes", "y"), ("no", "n")],
+                    callback=confirm,
+                )
+            else:
+                do_replay(name)
 
         signals.status_prompt.send(
             prompt="Replay file name", text="", callback=callback
