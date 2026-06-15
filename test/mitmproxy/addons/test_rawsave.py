@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from mitmproxy.addons import rawsave
@@ -242,21 +243,89 @@ def test_uncreatable_directory_logs_error(tmp_path, caplog):
     assert "Error while writing" in caplog.text
 
 
-def test_does_not_load_from_disk_on_startup(tmp_path):
-    # First, save a flow.
+def _save_one_flow(tmp_path):
     ra = rawsave.RawSave(directory=str(tmp_path))
     with taddons.context(ra):
         f = tflow.tflow(resp=True)
         ra.request(f)
         ra.response(f)
 
-    # A fresh addon instance must not expose any restore behavior and must not
-    # load the previously saved flows.
+
+async def test_does_not_load_from_disk_by_default(tmp_path):
+    # Loading from disk is opt-in: without --load (or always_load) running()
+    # must not restore previously saved flows.
+    _save_one_flow(tmp_path)
+
     ra2 = rawsave.RawSave(directory=str(tmp_path))
-    assert not hasattr(ra2, "_restored_flows")
-    assert not hasattr(ra2, "restore")
-    assert not hasattr(ra2, "running")
-    assert ra2.flow_numbers == {}
+    loaded = []
+    with taddons.context(ra2) as tctx:
+        tctx.master.load_flow = lambda flow: loaded.append(flow)
+        assert tctx.options.load is False
+        ra2.running()
+        await asyncio.sleep(0.01)
+    assert loaded == []
+    assert ra2.restored_ids == set()
+
+
+async def test_load_option_restores_flows(tmp_path):
+    _save_one_flow(tmp_path)
+
+    ra2 = rawsave.RawSave(directory=str(tmp_path))
+    loaded = []
+    with taddons.context(ra2) as tctx:
+        tctx.options.update(load=True)
+
+        async def fake_load_flow(flow):
+            loaded.append(flow)
+
+        tctx.master.load_flow = fake_load_flow
+        ra2.running()
+        await asyncio.sleep(0.01)
+    assert len(loaded) == 1
+    assert loaded[0].id in ra2.restored_ids
+
+
+async def test_always_load_config_restores_flows(tmp_path, monkeypatch):
+    _save_one_flow(tmp_path)
+    monkeypatch.setattr(rawsave.pwnproxy_config, "_config", {"always_load": True})
+
+    ra2 = rawsave.RawSave(directory=str(tmp_path))
+    loaded = []
+    with taddons.context(ra2) as tctx:
+        assert tctx.options.load is False
+
+        async def fake_load_flow(flow):
+            loaded.append(flow)
+
+        tctx.master.load_flow = fake_load_flow
+        ra2.running()
+        await asyncio.sleep(0.01)
+    assert len(loaded) == 1
+
+
+async def test_restored_flows_are_not_resaved(tmp_path):
+    _save_one_flow(tmp_path)
+
+    ra2 = rawsave.RawSave(directory=str(tmp_path))
+    restored = ra2._restored_flows()[0]
+    before = sorted(p.name for p in tmp_path.iterdir())
+    # Replaying lifecycle events for a restored flow must not write new files.
+    ra2.request(restored)
+    ra2.response(restored)
+    after = sorted(p.name for p in tmp_path.iterdir())
+    assert before == after
+
+
+def test_restore_skips_corrupt_files(tmp_path, caplog):
+    (tmp_path / "000001.req").write_bytes(b"not a valid req file")
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    assert ra._restored_flows() == []
+    assert "Could not restore" in caplog.text
+
+
+def test_restore_missing_directory(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path / "missing"))
+    assert ra._restored_flows() == []
 
 
 def test_counter_starts_after_existing_files(tmp_path):

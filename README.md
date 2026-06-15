@@ -30,21 +30,52 @@ Additional behavior:
   directory whose structure mirrors the request host and path
   (e.g. `map/example.com/test/000001.req`). Path traversal segments are
   sanitized.
-- **Save & restore**: on startup, previously saved `history/*.req`
-  (and matching `.resp`) files are parsed back into flows and restored into
-  the view. The file numbering continues after the highest existing number so
-  nothing is clobbered.
+- **Save & restore**: previously saved `history/*.req` (and matching `.resp`)
+  files can be parsed back into flows and restored into the view. This is
+  **opt-in** and disabled by default: pass `--load` on startup, or set
+  `"always_load": true` in `config.json` (see Configuration below). Either way
+  the file numbering continues after the highest existing number so nothing is
+  clobbered.
 - **Replay** (`rawsave.replay`): copies the saved `.req`/`.resp` files for the
   selected flow(s) into a `replay/` directory. An optional name lets you save
   them as `replay/<name>.req` / `replay/<name>.req.resp`.
 - **Burp-style interactive intercept**: `rawsave.intercept.toggle` and
-  `rawsave.intercept.response.toggle` open each request/response in Neovim for
+  `rawsave.intercept.response.toggle` open each request/response in your
+  configured editor (see `request_edit_command` below) for
   editing before it is forwarded. Special intercept-only keys
   (`stop_intercepting`, `update_content_length`) can be set in the `---` block
   while editing; they are never written to disk. `Content-Length` is
   recomputed automatically unless disabled.
 - Helper commands `req_path` / `resp_path` expose the on-disk paths for other
   addons (used by `tools` and the editor integration).
+
+### Configuration (`config.json`)
+
+On startup pwnproxy reads an optional `config.json` from two locations, in
+decreasing order of priority:
+
+- `~/.pwnproxy/config.json` (local; wins on key collision)
+- `~/.config/pwnproxy/config.json` (global)
+
+Missing files are ignored; malformed files log a warning and are skipped.
+
+Supported keys:
+
+- `request_edit_command`: the command used to open requests/responses in an
+  external editor (both the interactive intercept and the `e` hotkey). A
+  `{file}` placeholder is replaced with the path to edit; if absent, the path
+  is appended as the final argument. If unset, `$EDITOR` is used, then a
+  sensible fallback (`sensible-editor`/`nano`/`vim`).
+- `always_load` (boolean, default `false`): restore previously saved flows from
+  the history directory on startup. Equivalent to passing `--load`. The
+  `--load` flag takes effect even when this is unset.
+
+```json
+{
+    "request_edit_command": "nvim {file}",
+    "always_load": true
+}
+```
 
 ### Tools (`mitmproxy/addons/tools.py`)
 

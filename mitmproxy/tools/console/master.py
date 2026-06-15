@@ -19,6 +19,7 @@ from mitmproxy import addons
 from mitmproxy import log
 from mitmproxy import master
 from mitmproxy import options
+from mitmproxy import pwnproxy_config
 from mitmproxy.addons import errorcheck
 from mitmproxy.addons import eventstore
 from mitmproxy.addons import intercept
@@ -145,7 +146,11 @@ class ConsoleMaster(master.Master):
 
     def get_editor(self) -> str:
         # based upon https://github.com/pallets/click/blob/main/src/click/_termui_impl.py
-        if m := os.environ.get("MITMPROXY_EDITOR"):
+        #
+        # pwnproxy: the ``request_edit_command`` from config.json (local file
+        # then global file) takes priority, then $EDITOR, then sensible
+        # fallbacks.
+        if m := pwnproxy_config.request_edit_command():
             return m
         if m := os.environ.get("EDITOR"):
             return m
@@ -174,8 +179,7 @@ class ConsoleMaster(master.Master):
             c = self.get_hex_editor()
         else:
             c = self.get_editor()
-        cmd = shlex.split(c)
-        cmd.append(name)
+        cmd = pwnproxy_config.build_editor_command(c, name)
         with self.uistopped():
             try:
                 subprocess.call(cmd)
@@ -191,12 +195,11 @@ class ConsoleMaster(master.Master):
         """Open an existing file in the configured editor.
 
         Uses the same editor resolution as :meth:`spawn_editor`
-        (``$MITMPROXY_EDITOR``/``$EDITOR``, falling back to a sensible default),
-        rather than editing the file in-memory.
+        (the ``request_edit_command`` config value/``$EDITOR``, falling back to
+        a sensible default), rather than editing the file in-memory.
         """
         c = self.get_editor()
-        cmd = shlex.split(c)
-        cmd.append(path)
+        cmd = pwnproxy_config.build_editor_command(c, path)
         with self.uistopped():
             try:
                 subprocess.call(cmd)

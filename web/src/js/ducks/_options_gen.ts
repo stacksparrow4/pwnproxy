@@ -37,6 +37,7 @@ export interface OptionsState {
     key_size: number;
     listen_host: string;
     listen_port: number | undefined;
+    load: boolean;
     map_local: string[];
     map_remote: string[];
     mode: string[];
@@ -109,7 +110,7 @@ export type Option = keyof OptionsState;
 export const defaultState: OptionsState = {
     add_upstream_certs_to_client_chain: false,
     allow_hosts: [],
-    anticache: false,
+    anticache: true,
     anticomp: false,
     block_global: true,
     block_list: [],
@@ -144,6 +145,7 @@ export const defaultState: OptionsState = {
     key_size: 2048,
     listen_host: "",
     listen_port: undefined,
+    load: false,
     map_local: [],
     map_remote: [],
     mode: ["regular"],

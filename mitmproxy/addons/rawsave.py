@@ -7,11 +7,14 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from mitmproxy import command
+from mitmproxy import connection
 from mitmproxy import ctx
 from mitmproxy import flow
 from mitmproxy import http
+from mitmproxy import pwnproxy_config
 from mitmproxy.log import ALERT
 from mitmproxy.net.http import url
+from mitmproxy.utils import asyncio_utils
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,9 @@ class RawSave:
         self.directory = Path(directory)
         # Maps flow.id -> the number assigned to that flow.
         self.flow_numbers: dict[str, int] = {}
+        # ids of flows we restored on startup, so we don't immediately
+        # re-save them when load_flow replays their lifecycle events.
+        self.restored_ids: set[str] = set()
         # Burp-style interactive intercept: when enabled, each request (or
         # response) is opened in an external editor for editing before it is
         # forwarded.
@@ -47,6 +53,28 @@ class RawSave:
         # Start after any pre-existing N.req/N.req.resp files so we never
         # clobber data from a previous run.
         self.counter = self._highest_existing_number()
+
+    def load(self, loader) -> None:
+        loader.add_option(
+            "load",
+            bool,
+            False,
+            """
+            Load previously saved flows from the history directory on startup.
+            Disabled by default; can also be enabled with "always_load": true
+            in the pwnproxy config.json.
+            """,
+        )
+
+    def _should_load(self) -> bool:
+        """Whether to restore saved flows on startup.
+
+        Enabled by the ``--load`` startup flag or ``"always_load": true`` in
+        config.json. Defaults to disabled.
+        """
+        if getattr(ctx.options, "load", False):
+            return True
+        return pwnproxy_config.always_load()
 
     def _highest_existing_number(self) -> int:
         highest = 0
@@ -322,6 +350,48 @@ class RawSave:
             timestamp_end=now,
         )
 
+    def _build_flow(self, req_bytes: bytes, resp_bytes: bytes | None) -> http.HTTPFlow:
+        request, sni = self._parse_request_file(req_bytes)
+        now = time.time()
+        client = connection.Client(
+            peername=("0.0.0.0", 0), sockname=("0.0.0.0", 0), timestamp_start=now
+        )
+        server = connection.Server(address=(request.host, request.port))
+        server.sni = sni
+        f = http.HTTPFlow(client, server)
+        f.request = request
+        if resp_bytes is not None:
+            f.response = self._parse_response_file(resp_bytes)
+        return f
+
+    def _restored_flows(self) -> list[http.HTTPFlow]:
+        pattern = re.compile(r"^(\d+)\.req$")
+        numbers = []
+        try:
+            entries = list(self.directory.iterdir())
+        except OSError:
+            return []
+        for entry in entries:
+            m = pattern.match(entry.name)
+            if m:
+                numbers.append(int(m.group(1)))
+
+        flows = []
+        for n in sorted(numbers):
+            req_file = self.directory / self._name(n, "req")
+            resp_file = self.directory / self._name(n, "resp")
+            try:
+                req_bytes = req_file.read_bytes()
+                resp_bytes = resp_file.read_bytes() if resp_file.exists() else None
+                f = self._build_flow(req_bytes, resp_bytes)
+            except (OSError, ValueError, IndexError) as e:
+                logger.warning(f"Could not restore {self._name(n, 'req')}: {e}")
+                continue
+            self.restored_ids.add(f.id)
+            self.flow_numbers[f.id] = n
+            flows.append(f)
+        return flows
+
     @command.command("rawsave.replay")
     def replay(self, flows: Sequence[flow.Flow], name: str = "") -> None:
         """
@@ -516,14 +586,28 @@ class RawSave:
             logger.error(f"Could not parse edited response: {e}")
             return
 
+    async def restore(self) -> None:
+        for f in self._restored_flows():
+            await ctx.master.load_flow(f)
+
     # mitmproxy hooks
 
+    def running(self) -> None:
+        if self._should_load():
+            asyncio_utils.create_task(
+                self.restore(), name="rawsave restore", keep_ref=False
+            )
+
     def request(self, f: http.HTTPFlow) -> None:
+        if f.id in self.restored_ids:
+            return
         self.save_request(f)
         if self.intercept_request:
             self._intercept_request(f)
 
     def response(self, f: http.HTTPFlow) -> None:
+        if f.id in self.restored_ids:
+            return
         self.save_response(f)
         if self.intercept_response:
             self._intercept_response(f)
