@@ -103,6 +103,32 @@ def request_edit_command() -> str | None:
     return cmd
 
 
+def default_mode() -> list[str]:
+    """The default proxy mode(s), from the ``default_mode`` config key.
+
+    Accepts either a single mode string or a list of mode strings (the same
+    syntax accepted by ``--mode``). Falls back to ``["regular"]`` when unset or
+    invalid. An explicit ``--mode`` on the command line still overrides this.
+    """
+    value = config().get("default_mode")
+    if value is None:
+        return ["regular"]
+    if isinstance(value, str):
+        if value.strip():
+            return [value]
+    elif (
+        isinstance(value, list)
+        and value
+        and all(isinstance(v, str) and v.strip() for v in value)
+    ):
+        return list(value)
+    logger.warning(
+        "Ignoring pwnproxy 'default_mode': expected a non-empty string or "
+        "list of non-empty strings."
+    )
+    return ["regular"]
+
+
 def always_load() -> bool:
     """Whether saved flows should be restored from disk on startup.
 

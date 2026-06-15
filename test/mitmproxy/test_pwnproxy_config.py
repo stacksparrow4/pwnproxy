@@ -106,6 +106,36 @@ def test_request_edit_command_invalid(monkeypatch, value):
     assert pwnproxy_config.request_edit_command() is None
 
 
+def test_default_mode_unset(monkeypatch):
+    monkeypatch.setattr(pwnproxy_config, "_config", {})
+    assert pwnproxy_config.default_mode() == ["regular"]
+
+
+def test_default_mode_string(monkeypatch):
+    monkeypatch.setattr(pwnproxy_config, "_config", {"default_mode": "transparent"})
+    assert pwnproxy_config.default_mode() == ["transparent"]
+
+
+def test_default_mode_list(monkeypatch):
+    monkeypatch.setattr(
+        pwnproxy_config,
+        "_config",
+        {"default_mode": ["regular", "reverse:https://example.com"]},
+    )
+    assert pwnproxy_config.default_mode() == [
+        "regular",
+        "reverse:https://example.com",
+    ]
+
+
+@pytest.mark.parametrize("value", ["", "  ", [], ["regular", ""], [1], 5, {}])
+def test_default_mode_invalid(monkeypatch, value, caplog):
+    monkeypatch.setattr(pwnproxy_config, "_config", {"default_mode": value})
+    with caplog.at_level(logging.WARNING):
+        assert pwnproxy_config.default_mode() == ["regular"]
+    assert "default_mode" in caplog.text
+
+
 def test_always_load_default(monkeypatch):
     monkeypatch.setattr(pwnproxy_config, "_config", {})
     assert pwnproxy_config.always_load() is False

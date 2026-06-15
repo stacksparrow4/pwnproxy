@@ -69,11 +69,16 @@ Supported keys:
 - `always_load` (boolean, default `false`): restore previously saved flows from
   the history directory on startup. Equivalent to passing `--load`. The
   `--load` flag takes effect even when this is unset.
+- `default_mode` (string or list of strings, default `"regular"`): the proxy
+  mode(s) to use when no `--mode` is given on the command line. Uses the same
+  syntax as `--mode` (e.g. `"transparent"`, `"reverse:https://example.com"`).
+  An explicit `--mode` on the command line still overrides this.
 
 ```json
 {
     "request_edit_command": "nvim {file}",
-    "always_load": true
+    "always_load": true,
+    "default_mode": "regular"
 }
 ```
 

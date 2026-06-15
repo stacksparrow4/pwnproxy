@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Optional
 
 from mitmproxy import optmanager
+from mitmproxy import pwnproxy_config
 
 CONF_DIR = "~/.mitmproxy"
 CONF_BASENAME = "mitmproxy"
@@ -107,9 +108,11 @@ class Options(optmanager.OptManager):
         self.add_option(
             "mode",
             Sequence[str],
-            ["regular"],
+            pwnproxy_config.default_mode(),
             """
             The proxy server type(s) to spawn. Can be passed multiple times.
+            The default can be changed with the "default_mode" key in
+            config.json.
 
             Mitmproxy supports "regular" (HTTP), "local", "transparent", "socks5", "reverse:SPEC",
             "upstream:SPEC", and "wireguard[:PATH]" proxy servers. For reverse and upstream proxy modes, SPEC
