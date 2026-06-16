@@ -152,3 +152,37 @@ async def test_console_quickhelp_prompts_visible_when_disabled(console, monkeypa
     # Dismiss prompt
     bar.ab.prompt_done()
     assert len(bar.ab._w.contents) == 0
+
+
+async def test_actionbar_not_selectable_without_prompt(console, monkeypatch):
+    # The status bar must only grab keyboard focus while a prompt is active.
+    # Otherwise clicking it moves urwid's Frame focus to the footer and -- with
+    # no prompt to consume them -- keypresses get silently dropped, making the
+    # keyboard appear dead until the user clicks back into the flow list.
+    monkeypatch.setattr(statusbar.StatusBar, "refresh", lambda x: None)
+    bar = statusbar.StatusBar(console)
+
+    assert not bar.ab.selectable()
+    assert not bar.selectable()
+
+    bar.ab.sig_prompt("Test prompt", None, lambda x: None)
+    assert bar.ab.selectable()
+    assert bar.selectable()
+
+    bar.ab.prompt_done()
+    assert not bar.ab.selectable()
+    assert not bar.selectable()
+
+
+async def test_actionbar_keypress_propagates_without_prompt(console, monkeypatch):
+    # When no prompt is active the action bar must not consume keys (returning
+    # None would tell urwid the key was handled), so keyboard input is never
+    # stranded if focus ends up on the status bar.
+    monkeypatch.setattr(statusbar.StatusBar, "refresh", lambda x: None)
+    bar = statusbar.StatusBar(console)
+
+    assert bar.ab.keypress((80,), "j") == "j"
+
+    # While prompting, regular keys are consumed by the edit widget.
+    bar.ab.sig_prompt("Test prompt", None, lambda x: None)
+    assert bar.ab.keypress((80,), "j") is None

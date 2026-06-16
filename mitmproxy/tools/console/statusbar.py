@@ -106,14 +106,13 @@ class ActionBar(urwid.WidgetWrap):
         self, prompt: str, text: str | None, callback: Callable[[str], None]
     ) -> None:
         self.ensure_bottom_bar_is_visible()
-        signals.focus.send(section="footer")
         self.top._w = urwid.Edit(f"{prompt.strip()}: ", text or "")
         self.bottom._w = urwid.Text("")
         self.prompting = callback
+        signals.focus.send(section="footer")
 
     def sig_prompt_command(self, partial: str = "", cursor: int | None = None) -> None:
         self.ensure_bottom_bar_is_visible()
-        signals.focus.send(section="footer")
         self.top._w = commander.CommandEdit(
             self.master,
             partial,
@@ -122,6 +121,7 @@ class ActionBar(urwid.WidgetWrap):
             self.top._w.cbuf.cursor = cursor
         self.bottom._w = urwid.Text("")
         self.prompting = self.execute_command
+        signals.focus.send(section="footer")
 
     def execute_command(self, txt: str) -> None:
         if txt.strip():
@@ -137,7 +137,6 @@ class ActionBar(urwid.WidgetWrap):
         word is highlighted.
         """
         self.ensure_bottom_bar_is_visible()
-        signals.focus.send(section="footer")
         parts = [prompt, " ("]
         mkup = []
         for i, e in enumerate(keys):
@@ -150,27 +149,39 @@ class ActionBar(urwid.WidgetWrap):
         self.top._w = urwid.Edit(parts, "")
         self.bottom._w = urwid.Text("")
         self.prompting = callback
+        signals.focus.send(section="footer")
 
     def selectable(self) -> bool:
-        return True
+        # Only grab keyboard focus while a prompt is actually active. If the
+        # status bar were always selectable, clicking it would move urwid's
+        # Frame focus to the footer (see Frame.mouse_event), and -- with no
+        # prompt to consume them -- keypresses would be silently dropped,
+        # making the keyboard appear dead until the user clicks back into the
+        # flow list. Mouse-wheel scrolling keeps working in that state because
+        # urwid routes wheel events by row rather than by focus.
+        return self.prompting is not None
 
     def keypress(self, size, k):
-        if self.prompting:
-            if k == "esc":
+        if not self.prompting:
+            # No active prompt: never consume the key. Returning it lets the
+            # keystroke propagate up to the keymap even if focus somehow ended
+            # up on the status bar, so keyboard input can't get stuck.
+            return k
+        if k == "esc":
+            self.prompt_done()
+        elif self.onekey:
+            if k == "enter":
                 self.prompt_done()
-            elif self.onekey:
-                if k == "enter":
-                    self.prompt_done()
-                elif k in self.onekey:
-                    self.prompt_execute(k)
-            elif k == "enter":
-                text = self.top._w.get_edit_text()
-                self.prompt_execute(text)
+            elif k in self.onekey:
+                self.prompt_execute(k)
+        elif k == "enter":
+            text = self.top._w.get_edit_text()
+            self.prompt_execute(text)
+        else:
+            if common.is_keypress(k):
+                self.top._w.keypress(size, k)
             else:
-                if common.is_keypress(k):
-                    self.top._w.keypress(size, k)
-                else:
-                    return k
+                return k
 
     def show_quickhelp(self) -> None:
         if not self.master.options.console_quickhelp_visible:
@@ -363,4 +374,7 @@ class StatusBar(urwid.WidgetWrap):
         self.ib._w = status
 
     def selectable(self) -> bool:
-        return True
+        # Mirror ActionBar: the status bar should only take keyboard focus
+        # while a prompt is active, so clicking it never steals focus from
+        # the main view and strands keyboard input.
+        return self.ab.prompting is not None

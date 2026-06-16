@@ -1,1 +1,0 @@
-- Fix bug where keyboard stops working (it fixes after clicking a request)

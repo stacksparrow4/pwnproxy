@@ -7,6 +7,11 @@
 
 ## Unreleased: mitmproxy next
 
+- mitmproxy: Fixed a bug where the keyboard would stop responding after
+  clicking the status bar (e.g. accidentally below the flow list). The status
+  bar no longer steals keyboard focus while no prompt is active, and unhandled
+  keys are passed through instead of being silently dropped.
+
 - Upstream mode now supports forwarding to an upstream SOCKS5 proxy, e.g.
   `mitmdump --mode upstream:socks5://proxy:1080`. Authentication via
   `--upstream-auth` is performed during the SOCKS5 handshake.
