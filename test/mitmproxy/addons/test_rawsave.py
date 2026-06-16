@@ -495,6 +495,50 @@ def _fake_editor(new_content):
     return editor
 
 
+_MULTIPART_BODY = (
+    b"--X\r\n"
+    b'Content-Disposition: form-data; name="a"\r\n'
+    b"\r\n"
+    b"value\r\n"
+    b"--X--\r\n"
+)
+
+
+def _make_multipart_flow():
+    f = tflow.tflow()
+    f.request.method = "POST"
+    f.request.headers["Content-Type"] = "multipart/form-data; boundary=X"
+    f.request.content = _MULTIPART_BODY
+    return f
+
+
+def test_multipart_body_crlf_preserved_on_save(tmp_path):
+    # The head is flattened to bare \n, but the body must be written verbatim
+    # so multipart/form-data CRLF boundaries survive.
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        ra.save_request(_make_multipart_flow())
+
+    req = (tmp_path / "000001.req").read_bytes()
+    head, _, body = req.partition(b"\n\n")
+    assert b"\r" not in head
+    assert body == _MULTIPART_BODY
+
+
+def test_intercept_preserves_multipart_body(tmp_path):
+    # Round-tripping a multipart upload through interactive intercept (here with
+    # a no-op editor) must not corrupt the CRLF-delimited body.
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = _make_multipart_flow()
+        tctx.master.spawn_editor_file = lambda path: None
+        ra.intercept_toggle()
+        ra.request(f)
+
+    assert f.request.content == _MULTIPART_BODY
+
+
 def test_intercept_request_edits_flow(tmp_path):
     history = tmp_path / "history"
     ra = rawsave.RawSave(directory=str(history))

@@ -1,2 +1,2 @@
-- Option to set global socks proxy! So that I can always use exit node on work machine
-- Sometimes the keyboard breaks (mouse scroll still works) Usually when tabbing back in.
+- Clicking should update focus in regards to following changing the current request
+- Fix bug where keyboard stops working (it fixes after clicking a request)

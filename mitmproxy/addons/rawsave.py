@@ -222,11 +222,13 @@ class RawSave:
 
     def save_request(self, f: http.HTTPFlow) -> None:
         n = self._number_for(f)
-        head = self._assemble_request_head(f.request)
+        # Use bare \n line endings in the head (technically not valid HTTP) as
+        # requested. The body is left untouched as it may be binary or carry
+        # CRLF-delimited payloads (e.g. multipart/form-data), which require
+        # \r\n boundaries and would be corrupted by flattening.
+        head = self._assemble_request_head(f.request).replace(b"\r\n", b"\n")
         body = f.request.data.content or b""
         raw = head + body
-        # Use bare \n line endings (technically not valid HTTP) as requested.
-        raw = raw.replace(b"\r\n", b"\n")
         name = self._name(n, "req")
         self._write(name, self._metadata(f) + raw)
         self._link_into_map(f, name)
