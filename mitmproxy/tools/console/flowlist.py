@@ -168,12 +168,40 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
             # Re-couple the viewport to the selected flow first so that
             # navigation continues from the selection instead of jumping to
             # wherever the user scrolled to.
+            top = walker.focus_override
             walker.focus_override = None
             walker.follow_bottom = False
             index = self.master.view.focus.index
             if index is not None:
-                self.change_focus(size, index)
+                # Keep the selection at the same screen row it currently
+                # occupies, so re-coupling doesn't yank the viewport. Without
+                # this, navigating after scrolling away with the mouse wheel
+                # would snap the viewport back to the selection (e.g. moving
+                # the cursor *up* could scroll the screen *down*). If the
+                # selection has been scrolled out of view, fall back to the
+                # default behaviour, which brings it back on screen.
+                offset = self._row_offset(size, top, index)
+                _maxcol, maxrow = size
+                if 0 <= offset < maxrow:
+                    self.change_focus(size, index, offset_inset=offset)
+                else:
+                    self.change_focus(size, index)
         return urwid.ListBox.keypress(self, size, key)
+
+    def _row_offset(self, size, top: int, pos: int) -> int:
+        # Number of screen rows between the top of the viewport (the flow at
+        # index ``top``) and the start of flow ``pos``. Negative if ``pos`` is
+        # above the viewport top.
+        maxcol, _maxrow = size
+        walker = self.body
+        offset = 0
+        lo, hi, sign = (top, pos, 1) if pos >= top else (pos, top, -1)
+        for i in range(lo, hi):
+            widget, _ = walker._get(i)
+            if widget is None:
+                break
+            offset += sign * widget.rows((maxcol,))
+        return offset
 
     def _at_bottom(self, size) -> bool:
         # Whether the viewport is scrolled all the way to the bottom, i.e. the

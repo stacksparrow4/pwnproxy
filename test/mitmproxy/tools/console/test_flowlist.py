@@ -92,6 +92,44 @@ async def test_keyboard_navigation_recouples_selection(console):
     assert console.view.focus.index == 6
 
 
+async def test_navigation_after_mouse_scroll_does_not_snap_viewport(console):
+    # Reproduces the "screen snaps downwards" bug: with the cursor still
+    # visible in a viewport that was scrolled up with the mouse wheel, moving
+    # the cursor must not yank the viewport back to the selection. Moving the
+    # cursor *up* in particular must never scroll the screen *down*.
+    console.options.console_focus_follow = True
+    add_flows(console, 50)
+    size = (80, 24)
+    box = flowlist(console)
+
+    # Start at the bottom, then move the cursor up a few times. The viewport
+    # keeps tailing the bottom via a detached scroll anchor.
+    box.keypress(size, "m_end")
+    box.render(size, focus=True)
+    for _ in range(5):
+        box.keypress(size, "up")
+        box.render(size, focus=True)
+    assert box.body.focus_override is not None
+
+    # Scroll up once with the mouse wheel. The selection stays put and remains
+    # visible inside the now scrolled-up viewport.
+    selected = console.view.focus.index
+    box.scroll(size, up=True, lines=3)
+    box.render(size, focus=True)
+    top_before = top_pos(box, size)
+    bottom_before = bottom_pos(box, size)
+    assert console.view.focus.index == selected
+    assert top_before <= selected <= bottom_before  # still visible
+
+    # Moving the cursor up must move the selection by one and keep the
+    # viewport exactly where it was -- no downward snap.
+    box.keypress(size, "up")
+    box.render(size, focus=True)
+    assert console.view.focus.index == selected - 1
+    assert top_pos(box, size) == top_before
+    assert bottom_pos(box, size) == bottom_before
+
+
 async def test_focused_flow_does_not_follow_once_cursor_leaves_bottom(console):
     # The selected flow must only jump to newly arriving flows while it is
     # itself the last flow. Moving the cursor up pins the focused flow in

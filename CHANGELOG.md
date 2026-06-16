@@ -11,6 +11,10 @@
   clicking the status bar (e.g. accidentally below the flow list). The status
   bar no longer steals keyboard focus while no prompt is active, and unhandled
   keys are passed through instead of being silently dropped.
+- mitmproxy: Fixed the flow list snapping the viewport downwards when moving
+  the cursor after scrolling up with the mouse wheel. The selection now stays
+  visually in place while it remains on screen, instead of yanking the
+  viewport back to the cursor.
 
 - Upstream mode now supports forwarding to an upstream SOCKS5 proxy, e.g.
   `mitmdump --mode upstream:socks5://proxy:1080`. Authentication via
