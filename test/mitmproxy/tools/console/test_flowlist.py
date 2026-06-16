@@ -130,6 +130,49 @@ async def test_navigation_after_mouse_scroll_does_not_snap_viewport(console):
     assert bottom_pos(box, size) == bottom_before
 
 
+async def test_navigation_after_scroll_reveals_selection_at_nearest_edge(console):
+    # When the selection has been scrolled off-screen with the mouse wheel,
+    # navigating must scroll only far enough to reveal it at the nearest edge,
+    # not jump so far that the selection ends up at the opposite edge.
+    console.options.console_focus_follow = False
+    add_flows(console, 50)
+    size = (80, 24)
+    box = flowlist(console)
+
+    # Selection in the middle, then scroll all the way up so it leaves the
+    # viewport off the bottom.
+    console.view.focus.index = 30
+    box.render(size, focus=True)
+    box.scroll(size, up=True, lines=1000)
+    box.render(size, focus=True)
+    assert top_pos(box, size) == 0
+    assert bottom_pos(box, size) < 30  # selection is off the bottom
+
+    # Pressing up scrolls down just enough to show the selection at the bottom
+    # edge -- it must not over-scroll all the way to the end of the list.
+    box.keypress(size, "up")
+    box.render(size, focus=True)
+    assert console.view.focus.index == 29
+    bottom = bottom_pos(box, size)
+    assert top_pos(box, size) <= 29 <= bottom  # selection is visible
+    assert bottom <= 30  # at the bottom edge, scrolled no further
+    assert bottom != 49  # did not over-scroll to the end of the list
+
+    # The symmetric case: scroll all the way down so the selection leaves the
+    # viewport off the top, then pressing down reveals it at the top edge.
+    console.view.focus.index = 20
+    box.render(size, focus=True)
+    box.scroll(size, up=False, lines=1000)
+    box.render(size, focus=True)
+    assert top_pos(box, size) > 20  # selection is off the top
+
+    box.keypress(size, "down")
+    box.render(size, focus=True)
+    assert console.view.focus.index == 21
+    assert top_pos(box, size) <= 21 <= bottom_pos(box, size)  # visible
+    assert top_pos(box, size) >= 19  # at the top edge, scrolled no further
+
+
 async def test_focused_flow_does_not_follow_once_cursor_leaves_bottom(console):
     # The selected flow must only jump to newly arriving flows while it is
     # itself the last flow. Moving the cursor up pins the focused flow in

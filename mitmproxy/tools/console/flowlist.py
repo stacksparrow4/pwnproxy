@@ -177,15 +177,25 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
                 # occupies, so re-coupling doesn't yank the viewport. Without
                 # this, navigating after scrolling away with the mouse wheel
                 # would snap the viewport back to the selection (e.g. moving
-                # the cursor *up* could scroll the screen *down*). If the
-                # selection has been scrolled out of view, fall back to the
-                # default behaviour, which brings it back on screen.
+                # the cursor *up* could scroll the screen *down*).
                 offset = self._row_offset(size, top, index)
-                _maxcol, maxrow = size
-                if 0 <= offset < maxrow:
+                maxcol, maxrow = size
+                if offset < 0:
+                    # Selection scrolled off the top: bring it back in at the
+                    # top edge, scrolling up just enough to reveal it.
+                    self.change_focus(size, index, offset_inset=0)
+                elif offset < maxrow:
+                    # Selection is still on screen: leave it exactly in place.
                     self.change_focus(size, index, offset_inset=offset)
                 else:
-                    self.change_focus(size, index)
+                    # Selection scrolled off the bottom: bring it back in at
+                    # the bottom edge, scrolling down just enough to reveal it
+                    # (rather than all the way to the selection).
+                    widget, _ = walker._get(index)
+                    rows = widget.rows((maxcol,)) if widget is not None else 1
+                    self.change_focus(
+                        size, index, offset_inset=max(0, maxrow - rows)
+                    )
         return urwid.ListBox.keypress(self, size, key)
 
     def _row_offset(self, size, top: int, pos: int) -> int:

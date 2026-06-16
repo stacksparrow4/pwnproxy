@@ -14,7 +14,9 @@
 - mitmproxy: Fixed the flow list snapping the viewport downwards when moving
   the cursor after scrolling up with the mouse wheel. The selection now stays
   visually in place while it remains on screen, instead of yanking the
-  viewport back to the cursor.
+  viewport back to the cursor. When the selection has been scrolled off
+  screen, navigating now reveals it at the nearest edge instead of
+  over-scrolling past it.
 
 - Upstream mode now supports forwarding to an upstream SOCKS5 proxy, e.g.
   `mitmdump --mode upstream:socks5://proxy:1080`. Authentication via
