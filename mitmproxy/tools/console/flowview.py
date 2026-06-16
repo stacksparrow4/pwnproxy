@@ -12,6 +12,7 @@ from mitmproxy import dns
 from mitmproxy import http
 from mitmproxy import tcp
 from mitmproxy import udp
+from mitmproxy.addons.rawsave import NUMBER_WIDTH
 from mitmproxy.dns import DNSMessage
 from mitmproxy.tools.console import common
 from mitmproxy.tools.console import flowdetailview
@@ -31,11 +32,16 @@ class FlowViewHeader(urwid.WidgetWrap):
 
     def focus_changed(self):
         cols, _ = self.master.ui.get_cols_rows()
-        if self.master.view.focus.flow:
+        flow = self.master.view.focus.flow
+        if flow:
+            rawsave = self.master.addons.get("rawsave")
+            n = rawsave.flow_numbers.get(flow.id) if rawsave else None
+            filename = f"{n:0{NUMBER_WIDTH}d}" if n is not None else None
             self._w = common.format_flow(
-                self.master.view.focus.flow,
+                flow,
                 render_mode=common.RenderMode.DETAILVIEW,
                 hostheader=self.master.options.showhost,
+                filename=filename,
             )
         else:
             self._w = urwid.Pile([])

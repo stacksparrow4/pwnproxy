@@ -16,7 +16,11 @@ def test_format_flow():
 
 def test_format_flow_filename_column():
     f = tflow.tflow(resp=True)
-    for render_mode in (common.RenderMode.TABLE, common.RenderMode.LIST):
+    for render_mode in (
+        common.RenderMode.TABLE,
+        common.RenderMode.LIST,
+        common.RenderMode.DETAILVIEW,
+    ):
         w = common.format_flow(f, render_mode=render_mode, filename="000042")
         text = b"\n".join(w.render((120,)).text).decode()
         assert "000042" in text
