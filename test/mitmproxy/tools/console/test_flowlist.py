@@ -249,3 +249,38 @@ async def test_mouse_wheel_scrolls(console):
     box.render(size, focus=True)
     assert console.view.focus.index == 25
     assert box.body.focus_override is not None
+
+
+async def test_selecting_non_bottom_flow_stops_cursor_following(console):
+    # Selecting a flow that isn't the last one (e.g. via a mouse click, which
+    # goes through the walker's set_focus rather than FlowListBox.keypress)
+    # must stop the selection from following newly arriving flows.
+    console.options.console_focus_follow = True
+    add_flows(console, 50)
+    size = (80, 24)
+    box = flowlist(console)
+    box.render(size, focus=True)
+
+    # We start with the last flow selected, so the selection follows.
+    assert console.view.focus.index == 49
+    assert console.view.focus_follow
+
+    # Selecting a non-bottom flow re-couples the scroll position and stops the
+    # selection from following new flows.
+    box.body.set_focus(20)
+    selected_flow = console.view.focus.flow
+    assert console.view.focus.index == 20
+    assert not console.view.focus_follow
+
+    # New flows must not move the selection.
+    add_flows(console, 5)
+    box.render(size, focus=True)
+    assert console.view.focus.flow is selected_flow
+    assert console.view.focus.index == 20
+
+    # Selecting the (current) last flow resumes following.
+    box.body.set_focus(console.view.get_length() - 1)
+    assert console.view.focus_follow
+    add_flows(console, 5)
+    box.render(size, focus=True)
+    assert console.view.focus.index == console.view.get_length() - 1

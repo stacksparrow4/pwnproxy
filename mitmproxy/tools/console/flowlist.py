@@ -94,6 +94,17 @@ class FlowListWalker(urwid.ListWalker):
         self.follow_bottom = False
         if self.master.commands.execute("view.properties.inbounds %d" % index):
             self.master.view.focus.index = index
+        # Recompute whether the cursor should keep following new flows. This
+        # path is also taken by mouse clicks, which (unlike keyboard
+        # navigation) never reach ``FlowListBox._update_follow``. Without this,
+        # clicking a flow that isn't the last one would leave
+        # ``view.focus_follow`` stale, so the selection would keep jumping to
+        # newly arriving flows.
+        length = self.master.view.get_length()
+        cursor_at_bottom = length == 0 or self.master.view.focus.index == length - 1
+        self.master.view.focus_follow = (
+            self.master.options.console_focus_follow and cursor_at_bottom
+        )
 
     @lru_cache(maxsize=None)
     def _get(self, pos: int) -> tuple[FlowItem | None, int | None]:

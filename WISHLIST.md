@@ -1,2 +1,1 @@
-- Clicking should update focus in regards to following changing the current request
 - Fix bug where keyboard stops working (it fixes after clicking a request)
