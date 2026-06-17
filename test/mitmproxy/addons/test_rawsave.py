@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from mitmproxy.addons import rawsave
+from mitmproxy.proxy import mode_specs
 from mitmproxy.test import taddons
 from mitmproxy.test import tflow
 
@@ -56,6 +57,35 @@ def test_defaults_are_omitted(tmp_path):
     header = req.split(b"---\n", 2)[1]
     # host matches Host header, port is the https default, sni matches Host header
     assert header == b"protocol: https\n"
+
+
+def test_upstream_proxy_in_metadata(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        f.client_conn.proxy_mode = mode_specs.ProxyMode.parse(
+            "upstream:socks5://localhost:1055"
+        )
+        ra.request(f)
+
+    req = (tmp_path / "000001.req").read_bytes()
+    assert b"proxy: socks5://localhost:1055\n" in req
+
+    # The proxy value is informational only and must be ignored by --load.
+    request, _ = ra._parse_request_file(req)
+    assert b"socks5://localhost:1055" not in bytes(request.headers)
+    assert request.scheme == "http"
+
+
+def test_upstream_proxy_omitted_for_regular_mode(tmp_path):
+    ra = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra):
+        f = tflow.tflow(resp=True)
+        # tflow defaults to a regular proxy mode.
+        ra.request(f)
+
+    req = (tmp_path / "000001.req").read_bytes()
+    assert b"proxy:" not in req
 
 
 def test_http_default_port_omitted(tmp_path):

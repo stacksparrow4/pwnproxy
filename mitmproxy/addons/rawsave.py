@@ -14,6 +14,7 @@ from mitmproxy import http
 from mitmproxy import pwnproxy_config
 from mitmproxy.log import ALERT
 from mitmproxy.net.http import url
+from mitmproxy.proxy import mode_specs
 from mitmproxy.utils import asyncio_utils
 
 logger = logging.getLogger(__name__)
@@ -159,7 +160,7 @@ class RawSave:
         default_port = 443 if protocol == "https" else 80
 
         # Only non-default fields are written; order is significant for the
-        # on-disk format (host, port, protocol, sni).
+        # on-disk format (host, port, protocol, sni, proxy).
         meta: dict[str, str] = {}
         if request.host != header_host:
             meta["host"] = request.host
@@ -168,6 +169,12 @@ class RawSave:
         meta["protocol"] = protocol
         if sni and sni != header_host:
             meta["sni"] = sni
+        # When connecting through an upstream proxy, record it so the request
+        # file documents where it was forwarded. This value is purely
+        # informational and is ignored by the --load functionality.
+        proxy_mode = f.client_conn.proxy_mode
+        if isinstance(proxy_mode, mode_specs.UpstreamMode):
+            meta["proxy"] = proxy_mode.data
         return self._serialize_block(meta)
 
     def _assemble_request_head(self, request: http.Request) -> bytes:
