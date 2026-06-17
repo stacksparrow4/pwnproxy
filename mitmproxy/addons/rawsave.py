@@ -386,7 +386,12 @@ class RawSave:
                 numbers.append(int(m.group(1)))
 
         flows = []
+        # Numbers we already know about (saved or previously restored this
+        # session) so we don't load duplicates, e.g. when "L" is pressed twice.
+        known_numbers = set(self.flow_numbers.values())
         for n in sorted(numbers):
+            if n in known_numbers:
+                continue
             req_file = self.directory / self._name(n, "req")
             resp_file = self.directory / self._name(n, "resp")
             try:
@@ -599,6 +604,16 @@ class RawSave:
         for f in self._restored_flows():
             await ctx.master.load_flow(f)
 
+    @command.command("rawsave.load")
+    def load_saved(self) -> None:
+        """
+        Restore previously saved flows from the history directory, the same as
+        the ``--load`` startup flag.
+        """
+        asyncio_utils.create_task(
+            self.restore(), name="rawsave restore", keep_ref=False
+        )
+
     # mitmproxy hooks
 
     def running(self) -> None:
@@ -606,6 +621,8 @@ class RawSave:
             asyncio_utils.create_task(
                 self.restore(), name="rawsave restore", keep_ref=False
             )
+        elif self._highest_existing_number() > 0:
+            logging.log(ALERT, "History detected. Press L to load history into TUI")
 
     def request(self, f: http.HTTPFlow) -> None:
         if f.id in self.restored_ids:

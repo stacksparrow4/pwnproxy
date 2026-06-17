@@ -87,7 +87,7 @@ def make(
                 }
         else:
             top_items |= {
-                "Load flows": "Load flows from file",
+                "Load flows": "Load flows from the history directory",
                 "Create new": "Create a new flow",
             }
     elif widget == KeyBindings:

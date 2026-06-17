@@ -101,7 +101,10 @@ def map(km: Keymap) -> None:
         "Send cuts to clipboard",
     )
     km.add(
-        "L", "console.command view.flows.load ", ["flowlist"], "Load flows from file"
+        "L",
+        "rawsave.load",
+        ["flowlist"],
+        "Load flows from the history directory",
     )
     km.add("m", "flow.mark.toggle @focus", ["flowlist"], "Toggle mark on this flow")
     km.add(

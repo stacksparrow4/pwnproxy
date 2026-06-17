@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from mitmproxy.addons import rawsave
+from mitmproxy.log import ALERT
 from mitmproxy.proxy import mode_specs
 from mitmproxy.test import taddons
 from mitmproxy.test import tflow
@@ -297,6 +298,29 @@ async def test_does_not_load_from_disk_by_default(tmp_path):
     assert ra2.restored_ids == set()
 
 
+async def test_history_detected_logs_hint(tmp_path, caplog):
+    # When history files exist but auto-load is off, running() should hint that
+    # the user can press L to load them.
+    _save_one_flow(tmp_path)
+
+    ra2 = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra2):
+        caplog.set_level(ALERT)
+        ra2.running()
+        await asyncio.sleep(0.01)
+    assert "History detected. Press L to load history into TUI" in caplog.text
+
+
+async def test_no_history_no_hint(tmp_path, caplog):
+    # No history files -> no hint.
+    ra2 = rawsave.RawSave(directory=str(tmp_path))
+    with taddons.context(ra2):
+        caplog.set_level(ALERT)
+        ra2.running()
+        await asyncio.sleep(0.01)
+    assert "History detected" not in caplog.text
+
+
 async def test_load_option_restores_flows(tmp_path):
     _save_one_flow(tmp_path)
 
@@ -313,6 +337,30 @@ async def test_load_option_restores_flows(tmp_path):
         await asyncio.sleep(0.01)
     assert len(loaded) == 1
     assert loaded[0].id in ra2.restored_ids
+
+
+async def test_load_command_restores_flows(tmp_path):
+    # The rawsave.load command (bound to "L" in the console) restores saved
+    # flows the same way the --load startup flag does.
+    _save_one_flow(tmp_path)
+
+    ra2 = rawsave.RawSave(directory=str(tmp_path))
+    loaded = []
+    with taddons.context(ra2) as tctx:
+
+        async def fake_load_flow(flow):
+            loaded.append(flow)
+
+        tctx.master.load_flow = fake_load_flow
+        ra2.load_saved()
+        await asyncio.sleep(0.01)
+        assert len(loaded) == 1
+        assert loaded[0].id in ra2.restored_ids
+
+        # Pressing "L" a second time must not load duplicates.
+        ra2.load_saved()
+        await asyncio.sleep(0.01)
+    assert len(loaded) == 1
 
 
 async def test_always_load_config_restores_flows(tmp_path, monkeypatch):
