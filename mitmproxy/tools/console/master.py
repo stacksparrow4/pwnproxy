@@ -133,16 +133,20 @@ class ConsoleMaster(master.Master):
                 if getattr(self.ui, "_started", False):
                     self.ui.stop()
 
+    def _ui_restart(self) -> None:
+        """Restart the urwid screen and force a full redraw."""
+        self._ui_start()
+        if self._loop_started:
+            self.loop.screen_size = None
+            self.loop.draw_screen()
+
     @contextlib.contextmanager
     def uistopped(self):
         self._ui_stop()
         try:
             yield
         finally:
-            self._ui_start()
-            if self._loop_started:
-                self.loop.screen_size = None
-                self.loop.draw_screen()
+            self._ui_restart()
 
     def get_editor(self) -> str:
         # based upon https://github.com/pallets/click/blob/main/src/click/_termui_impl.py
@@ -197,14 +201,28 @@ class ConsoleMaster(master.Master):
         Uses the same editor resolution as :meth:`spawn_editor`
         (the ``request_edit_command`` config value/``$EDITOR``, falling back to
         a sensible default), rather than editing the file in-memory.
+
+        Unlike :meth:`spawn_editor`, this does **not** block the event loop:
+        the editor subprocess is run in a worker thread and awaited, so the
+        proxy keeps servicing connections while the TUI is suspended. The
+        terminal is handed over to the editor in the meantime; the screen is
+        restored once the editor exits.
         """
+        asyncio.ensure_future(self._spawn_editor_file_async(path))
+
+    async def _spawn_editor_file_async(self, path: str) -> None:
         c = self.get_editor()
         cmd = pwnproxy_config.build_editor_command(c, path)
-        with self.uistopped():
-            try:
-                subprocess.call(cmd)
-            except Exception:
-                signals.status_message.send(message="Can't start editor: %s" % c)
+        # Suspend the TUI so the editor owns the terminal, but keep the
+        # asyncio event loop running so the proxy stays alive.
+        self._ui_stop()
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, subprocess.call, cmd)
+        except Exception:
+            signals.status_message.send(message="Can't start editor: %s" % c)
+        finally:
+            self._ui_restart()
 
     def spawn_external_viewer(self, data, contenttype):
         if contenttype:
