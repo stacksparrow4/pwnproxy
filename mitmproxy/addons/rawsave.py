@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import re
@@ -601,6 +602,13 @@ class RawSave:
             return
 
     async def restore(self) -> None:
+        # Yield control back to the event loop first so the console can repaint
+        # (e.g. render the "Loading..." status) before we block it with the
+        # synchronous work of reading and parsing the saved files. A small,
+        # non-zero delay is required: the log message is dispatched to the UI
+        # via call_soon_threadsafe and the redraw happens on the next idle, so
+        # a bare sleep(0) (single loop iteration) is not enough.
+        await asyncio.sleep(0.05)
         for f in self._restored_flows():
             await ctx.master.load_flow(f)
 
@@ -610,6 +618,9 @@ class RawSave:
         Restore previously saved flows from the history directory, the same as
         the ``--load`` startup flag.
         """
+        # Loading can take a while, so give immediate visual feedback before
+        # the (asynchronous) restore actually starts.
+        logging.log(ALERT, "Loading...")
         asyncio_utils.create_task(
             self.restore(), name="rawsave restore", keep_ref=False
         )

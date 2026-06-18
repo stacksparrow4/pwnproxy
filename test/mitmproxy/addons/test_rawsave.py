@@ -293,7 +293,7 @@ async def test_does_not_load_from_disk_by_default(tmp_path):
         tctx.master.load_flow = lambda flow: loaded.append(flow)
         assert tctx.options.load is False
         ra2.running()
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
     assert loaded == []
     assert ra2.restored_ids == set()
 
@@ -307,7 +307,7 @@ async def test_history_detected_logs_hint(tmp_path, caplog):
     with taddons.context(ra2):
         caplog.set_level(ALERT)
         ra2.running()
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
     assert "History detected. Press L to load history into TUI" in caplog.text
 
 
@@ -317,7 +317,7 @@ async def test_no_history_no_hint(tmp_path, caplog):
     with taddons.context(ra2):
         caplog.set_level(ALERT)
         ra2.running()
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
     assert "History detected" not in caplog.text
 
 
@@ -334,12 +334,12 @@ async def test_load_option_restores_flows(tmp_path):
 
         tctx.master.load_flow = fake_load_flow
         ra2.running()
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
     assert len(loaded) == 1
     assert loaded[0].id in ra2.restored_ids
 
 
-async def test_load_command_restores_flows(tmp_path):
+async def test_load_command_restores_flows(tmp_path, caplog):
     # The rawsave.load command (bound to "L" in the console) restores saved
     # flows the same way the --load startup flag does.
     _save_one_flow(tmp_path)
@@ -347,19 +347,22 @@ async def test_load_command_restores_flows(tmp_path):
     ra2 = rawsave.RawSave(directory=str(tmp_path))
     loaded = []
     with taddons.context(ra2) as tctx:
+        caplog.set_level(ALERT)
 
         async def fake_load_flow(flow):
             loaded.append(flow)
 
         tctx.master.load_flow = fake_load_flow
         ra2.load_saved()
-        await asyncio.sleep(0.01)
+        # Immediate feedback before the async restore runs.
+        assert "Loading..." in caplog.text
+        await asyncio.sleep(0.1)
         assert len(loaded) == 1
         assert loaded[0].id in ra2.restored_ids
 
         # Pressing "L" a second time must not load duplicates.
         ra2.load_saved()
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
     assert len(loaded) == 1
 
 
@@ -377,7 +380,7 @@ async def test_always_load_config_restores_flows(tmp_path, monkeypatch):
 
         tctx.master.load_flow = fake_load_flow
         ra2.running()
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
     assert len(loaded) == 1
 
 
