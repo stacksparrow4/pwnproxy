@@ -10,13 +10,16 @@ async def test_flowview(console):
     for f in tflow.tflows():
         console.commands.call("view.clear")
         await console.load_flow(f)
-        console.type("<enter><tab><tab>")
+        # For HTTP flows <enter> now opens the external editor, so open the
+        # detail view directly to exercise the flowview widget.
+        console.switch_view("flowview")
+        console.type("<tab><tab>")
 
 
 async def test_flowview_tab_cycle(console):
     f = tflow.tflow()
     await console.load_flow(f)
-    console.type("<enter>")
+    console.switch_view("flowview")
     fv = console.window.current("flowview")
     fd = fv.body
     assert isinstance(fd, FlowDetails)
@@ -36,13 +39,14 @@ async def test_flowview_resets_tab_on_open(console):
     f = tflow.tflow()
     await console.load_flow(f)
     # Open the flow and switch to a different tab.
-    console.type("<enter><tab>")
+    console.switch_view("flowview")
+    console.type("<tab>")
     fv = console.window.current("flowview")
     fd = fv.body
     assert fd.tab_offset == 1
     # Leave the flowview and reopen the flow - it should reset to the first tab.
     console.type("q")
-    console.type("<enter>")
+    console.switch_view("flowview")
     assert fd.tab_offset == 0
 
 
@@ -61,6 +65,25 @@ async def test_edit(console, monkeypatch, caplog):
 
     console.type(":console.edit.focus<enter>")
     assert opened == ["/tmp/1.req"]
+
+
+async def test_enter_on_http_flow_opens_editor(console, monkeypatch):
+    # Selecting an HTTP flow (via <enter> / console.view.flow) should open the
+    # external editor, equivalent to pressing 'e', rather than the detail view.
+    f = tflow.tflow(
+        req=http.Request.make("POST", "http://example.com", b"data"),
+    )
+    await console.load_flow(f)
+
+    opened = []
+    monkeypatch.setattr(console, "spawn_editor_file", lambda path: opened.append(path))
+    rawsave = console.addons.get("rawsave")
+    monkeypatch.setattr(rawsave, "req_path", lambda flow: "/tmp/1.req")
+
+    console.type("<enter>")
+    assert opened == ["/tmp/1.req"]
+    # The flowview detail view should not have been opened.
+    assert console.window.current("flowview") is None
 
 
 async def test_content_missing_returns_error(console):

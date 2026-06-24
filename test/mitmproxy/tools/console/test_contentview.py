@@ -24,7 +24,9 @@ async def test_contentview_flowview(console, monkeypatch):
     assert "Flows" in console.screen_contents()
     await console.load_flow(tflow.tflow())
     assert ">>" in console.screen_contents()
-    console.type("<enter>")
+    # 'P' opens the flow detail view (<enter> now opens the editor for HTTP
+    # flows instead).
+    console.type("P")
     assert "Raw" in console.screen_contents()
 
     view = ConsoleTestContentView("test1")
@@ -35,5 +37,5 @@ async def test_contentview_flowview(console, monkeypatch):
     assert "Flows" in console.screen_contents()
 
     contentviews.add(ConsoleTestContentView("test2"))
-    console.type("<enter>")
+    console.type("P")
     assert "test2" in console.screen_contents()

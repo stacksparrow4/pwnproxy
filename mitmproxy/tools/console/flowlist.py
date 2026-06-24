@@ -42,7 +42,7 @@ class FlowItem(urwid.WidgetWrap):
 
     def mouse_event(self, size, event, button, col, row, focus):
         if event == "mouse press" and button == 1:
-            self.master.commands.execute("console.view.flow @focus")
+            self.master.commands.execute("console.flow.select @focus")
             return True
 
     def keypress(self, size, key):
@@ -159,7 +159,7 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
             self.set_focus_valign("bottom")
             self._invalidate()
         elif key == "m_select":
-            self.master.commands.execute("console.view.flow @focus")
+            self.master.commands.execute("console.flow.select @focus")
         elif walker.focus_override is not None:
             # Any other key is navigation handled by urwid's ListBox (up/down,
             # page up/down, ...). urwid derives the movement from the widget

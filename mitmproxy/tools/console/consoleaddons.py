@@ -427,6 +427,19 @@ class ConsoleAddon:
         else:
             logger.warning(f"No detail view for {type(flow).__name__}.")
 
+    @command.command("console.flow.select")
+    def flow_select(self, flow: flow.Flow) -> None:
+        """
+        Default action for selecting a flow (clicking it or pressing enter in
+        the flow list). For HTTP flows this opens the request in an external
+        editor (equivalent to pressing 'e'); for all other flow types it falls
+        back to opening the detail view.
+        """
+        if isinstance(flow, http.HTTPFlow):
+            self.edit_focus()
+        else:
+            self.view_flow(flow)
+
     @command.command("console.exit")
     def exit(self) -> None:
         """Exit mitmproxy."""
