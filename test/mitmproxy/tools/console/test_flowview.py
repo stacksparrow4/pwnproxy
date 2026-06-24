@@ -86,6 +86,20 @@ async def test_enter_on_http_flow_opens_editor(console, monkeypatch):
     assert console.window.current("flowview") is None
 
 
+async def test_enter_on_websocket_flow_opens_detail_view(console, monkeypatch):
+    # WebSocket flows should keep the old behaviour (open the detail view so
+    # the messages are visible) rather than opening the editor.
+    f = tflow.twebsocketflow()
+    await console.load_flow(f)
+
+    opened = []
+    monkeypatch.setattr(console, "spawn_editor_file", lambda path: opened.append(path))
+
+    console.type("<enter>")
+    assert opened == []
+    assert console.window.current("flowview") is not None
+
+
 async def test_content_missing_returns_error(console):
     # message.raw_content is None -> expect "[content missing]" error text
     f_missing = tflow.tflow(

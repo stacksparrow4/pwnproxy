@@ -431,11 +431,12 @@ class ConsoleAddon:
     def flow_select(self, flow: flow.Flow) -> None:
         """
         Default action for selecting a flow (clicking it or pressing enter in
-        the flow list). For HTTP flows this opens the request in an external
-        editor (equivalent to pressing 'e'); for all other flow types it falls
-        back to opening the detail view.
+        the flow list). For plain HTTP flows this opens the request in an
+        external editor (equivalent to pressing 'e'); for WebSocket flows and
+        all other flow types it falls back to opening the detail view (e.g. so
+        WebSocket messages remain visible).
         """
-        if isinstance(flow, http.HTTPFlow):
+        if isinstance(flow, http.HTTPFlow) and flow.websocket is None:
             self.edit_focus()
         else:
             self.view_flow(flow)
