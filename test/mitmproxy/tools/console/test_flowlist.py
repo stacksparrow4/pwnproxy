@@ -365,3 +365,39 @@ async def test_selecting_non_bottom_flow_stops_cursor_following(console):
     add_flows(console, 5)
     box.render(size, focus=True)
     assert console.view.focus.index == console.view.get_length() - 1
+
+
+async def test_click_requires_double_click_to_open(console, monkeypatch):
+    console.options.console_focus_follow = False
+    add_flows(console, 50)
+    size = (80, 24)
+    box = flowlist(console)
+    console.view.focus.index = 5
+    box.render(size, focus=True)
+
+    # Intercept only the "open" command so that the regular focus-handling
+    # commands (e.g. ``view.properties.inbounds``) keep working.
+    opened = []
+    original_execute = console.commands.execute
+
+    def execute(cmd):
+        if cmd == "console.flow.select @focus":
+            opened.append(cmd)
+            return None
+        return original_execute(cmd)
+
+    monkeypatch.setattr(console.commands, "execute", execute)
+
+    # Clicking a not-yet-focused flow only moves the focus there; it does not
+    # open the flow.
+    box.mouse_event(size, "mouse press", 1, 0, 4, True)
+    box.render(size, focus=True)
+    moved_to = console.view.focus.index
+    assert moved_to != 5
+    assert opened == []
+
+    # Clicking the now-focused flow (same screen row) opens it.
+    box.mouse_event(size, "mouse press", 1, 0, 4, True)
+    box.render(size, focus=True)
+    assert console.view.focus.index == moved_to
+    assert opened == ["console.flow.select @focus"]

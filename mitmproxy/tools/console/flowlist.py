@@ -41,8 +41,12 @@ class FlowItem(urwid.WidgetWrap):
         return True
 
     def mouse_event(self, size, event, button, col, row, focus):
+        # Selecting/opening a flow on click is handled in
+        # ``FlowListBox.mouse_event`` so that we can implement double-click
+        # semantics (it needs to know which flow was focused *before* the
+        # click, which urwid has already overwritten by the time we get here).
+        # We only consume the press so urwid does not propagate it further.
         if event == "mouse press" and button == 1:
-            self.master.commands.execute("console.flow.select @focus")
             return True
 
     def keypress(self, size, key):
@@ -275,6 +279,17 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
         if event == "mouse press" and button in (4, 5):
             self.scroll(size, up=button == 4, lines=SCROLL_LINES)
             return True
+        if event == "mouse press" and button == 1:
+            # Double-click semantics: the first click only moves the focus to
+            # the clicked flow, a second click on the already-focused flow
+            # opens it. urwid changes the focus inside ``super().mouse_event``,
+            # so we remember the previously focused flow beforehand.
+            previously_focused = self.master.view.focus.flow
+            handled = super().mouse_event(size, event, button, col, row, focus)
+            now_focused = self.master.view.focus.flow
+            if now_focused is not None and now_focused is previously_focused:
+                self.master.commands.execute("console.flow.select @focus")
+            return handled
         return super().mouse_event(size, event, button, col, row, focus)
 
     def scroll(self, size, up: bool, lines: int) -> None:

@@ -7,6 +7,9 @@
 
 ## Unreleased: mitmproxy next
 
+- mitmproxy: Clicking a flow in the flow list now requires a double click to
+  open it. The first click moves the focus to the flow, and clicking the
+  already-focused flow opens it.
 - mitmproxy: Fixed a bug where the keyboard would stop responding after
   clicking the status bar (e.g. accidentally below the flow list). The status
   bar no longer steals keyboard focus while no prompt is active, and unhandled
