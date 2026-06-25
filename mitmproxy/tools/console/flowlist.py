@@ -287,7 +287,15 @@ class FlowListBox(urwid.ListBox, layoutwidget.LayoutWidget):
             previously_focused = self.master.view.focus.flow
             handled = super().mouse_event(size, event, button, col, row, focus)
             now_focused = self.master.view.focus.flow
-            if now_focused is not None and now_focused is previously_focused:
+            # ``handled`` is only truthy when the click actually landed on a
+            # ``FlowItem``. Clicking the empty area below the last flow leaves
+            # the focus unchanged *without* hitting a flow, which would
+            # otherwise be misread as a second click on the focused flow.
+            if (
+                handled
+                and now_focused is not None
+                and now_focused is previously_focused
+            ):
                 self.master.commands.execute("console.flow.select @focus")
             return handled
         return super().mouse_event(size, event, button, col, row, focus)

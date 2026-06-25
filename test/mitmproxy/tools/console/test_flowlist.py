@@ -401,3 +401,33 @@ async def test_click_requires_double_click_to_open(console, monkeypatch):
     box.render(size, focus=True)
     assert console.view.focus.index == moved_to
     assert opened == ["console.flow.select @focus"]
+
+
+async def test_click_empty_area_below_flows_does_not_open(console, monkeypatch):
+    # When the flow list does not fill the screen, clicking the empty rows
+    # below the last flow must not be treated as a (double) click that opens
+    # the focused flow.
+    console.options.console_focus_follow = False
+    add_flows(console, 3)
+    size = (80, 24)
+    box = flowlist(console)
+    console.view.focus.index = 2
+    box.render(size, focus=True)
+
+    opened = []
+    original_execute = console.commands.execute
+
+    def execute(cmd):
+        if cmd == "console.flow.select @focus":
+            opened.append(cmd)
+            return None
+        return original_execute(cmd)
+
+    monkeypatch.setattr(console.commands, "execute", execute)
+
+    # Row 15 is well below the 3 flows (rows 0-2). The click must not open
+    # anything, even though the focus stays on the same flow.
+    box.mouse_event(size, "mouse press", 1, 0, 15, True)
+    box.render(size, focus=True)
+    assert console.view.focus.index == 2
+    assert opened == []
