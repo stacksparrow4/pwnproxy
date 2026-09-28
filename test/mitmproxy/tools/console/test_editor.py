@@ -96,6 +96,116 @@ def test_canvas_swallows_unsupported_sequences():
     assert "red" in row[1][0].foreground
 
 
+def test_canvas_mouse_modes():
+    t = editor.EditorTerminal(["sh"], main_loop=None)
+    c = editor.EditorCanvas(20, 3, t)
+    assert t.mouse_modes == editor.MouseModes()
+    c.addstr(b"\x1b[?1002h\x1b[?1006h")  # what nvim sends
+    assert t.mouse_modes == editor.MouseModes(1002, 1006)
+    c.addstr(b"\x1b[?1000h\x1b[?1015h")
+    assert t.mouse_modes == editor.MouseModes(1000, 1015)
+    c.addstr(b"\x1b[?1000l\x1b[?1015l\x1b[?25l")
+    assert t.mouse_modes == editor.MouseModes()
+    assert t.term_modes.visible_cursor is False  # other modes still work
+    c.addstr(b"\x1b[?1003;1005h\x1bcx")  # RIS resets mouse modes
+    assert t.mouse_modes == editor.MouseModes()
+
+
+SGR = editor.MouseModes(editor.MOUSE_BUTTON_EVENT, editor.MOUSE_SGR)
+
+
+@pytest.mark.parametrize(
+    "modes,event,button,expected",
+    [
+        (editor.MouseModes(), "mouse press", 1, None),
+        (SGR, "mouse press", 1, b"\x1b[<0;3;5M"),
+        (SGR, "mouse press", 3, b"\x1b[<2;3;5M"),
+        (SGR, "mouse drag", 1, b"\x1b[<32;3;5M"),
+        (SGR, "mouse release", 1, b"\x1b[<0;3;5m"),
+        (SGR, "mouse release", 0, b"\x1b[<3;3;5m"),
+        (SGR, "mouse press", 4, b"\x1b[<64;3;5M"),
+        (SGR, "mouse press", 5, b"\x1b[<65;3;5M"),
+        (SGR, "mouse release", 4, None),
+        (SGR, "shift ctrl mouse press", 1, b"\x1b[<20;3;5M"),
+        (SGR, "meta mouse press", 1, b"\x1b[<8;3;5M"),
+        (SGR, "mouse press", 0, None),
+        (SGR, "mouse press", 8, None),
+        (SGR, "double mouse click", 1, None),
+        (SGR, "press", 1, None),
+        (SGR, "triple mouse press", 1, b"\x1b[<0;3;5M"),
+        (editor.MouseModes(1000), "mouse press", 1, b"\x1b[M #%"),
+        (editor.MouseModes(1000), "mouse release", 1, b"\x1b[M##%"),
+        (editor.MouseModes(1000), "mouse drag", 1, None),
+        (editor.MouseModes(1003), "mouse drag", 2, b"\x1b[MA#%"),
+        (editor.MouseModes(9), "ctrl mouse press", 1, b"\x1b[M #%"),
+        (editor.MouseModes(9), "mouse release", 1, None),
+        (editor.MouseModes(1000, 1015), "mouse release", 1, b"\x1b[35;3;5M"),
+        (editor.MouseModes(1000, 1005), "mouse press", 2, b"\x1b[M!#%"),
+    ],
+)
+def test_encode_mouse(modes, event, button, expected):
+    assert editor.encode_mouse(modes, event, button, 2, 4) == expected
+
+
+def test_encode_mouse_large_coordinates():
+    legacy = editor.MouseModes(1000)
+    assert editor.encode_mouse(legacy, "mouse press", 1, 222, 0) == b"\x1b[M \xff!"
+    assert editor.encode_mouse(legacy, "mouse press", 1, 223, 0) is None
+    utf8 = editor.MouseModes(1000, 1005)
+    assert (
+        editor.encode_mouse(utf8, "mouse press", 1, 300, 0)
+        == ("\x1b[M " + chr(333) + "!").encode()
+    )
+    assert editor.encode_mouse(utf8, "mouse press", 1, 2100, 0) is None
+    assert editor.encode_mouse(SGR, "mouse press", 1, 2100, 0) == b"\x1b[<0;2101;1M"
+
+
+async def test_terminal_mouse_event():
+    # The child enables SGR mouse tracking, then echoes what it receives.
+    t = editor.EditorTerminal(
+        [
+            "sh",
+            "-c",
+            r"stty raw -echo; printf '\033[?1002h\033[?1006hready\r\n';"
+            r" dd bs=1 count=18 2>/dev/null | od -An -c | tr -d ' \n'; sleep 30",
+        ],
+        main_loop=urwid_loop(),
+    )
+    assert t.mouse_event(SIZE, "mouse press", 1, 0, 0, True) is False  # no pty yet
+    t.render(SIZE, focus=True)
+    await eventually(lambda: "ready" in screen(t))
+    assert t.mouse_modes == SGR
+    assert t.mouse_event(SIZE, "mouse press", 1, 2, 1, True) is True
+    assert t.mouse_event(SIZE, "mouse release", 0, 2, 1, True) is True
+    assert t.mouse_event(SIZE, "double mouse click", 1, 2, 1, True) is True
+    await eventually(lambda: r"033[<0;3;2M033[<0;3;2m" in screen(t).replace("\\", ""))
+    t.terminate()
+    await wait_exited(t)
+    assert t.mouse_event(SIZE, "mouse press", 1, 0, 0, True) is False
+
+
+async def test_terminal_mouse_untracked_wheel():
+    t = editor.EditorTerminal(
+        [
+            "sh",
+            "-c",
+            "stty raw -echo; echo ready;"
+            " dd bs=1 count=6 2>/dev/null | od -An -c | tr -d ' \\n'; sleep 30",
+        ],
+        main_loop=urwid_loop(),
+    )
+    t.render(SIZE, focus=True)
+    await eventually(lambda: "ready" in screen(t))
+    # Without mouse tracking the wheel becomes cursor keys, the rest is ignored.
+    assert t.mouse_event(SIZE, "mouse press", 4, 0, 0, True) is True
+    assert t.mouse_event(SIZE, "mouse press", 5, 0, 0, True) is True
+    assert t.mouse_event(SIZE, "mouse press", 1, 0, 0, True) is False
+    assert t.mouse_event(SIZE, "mouse drag", 1, 0, 0, True) is False
+    await eventually(lambda: "033[A033[B" in screen(t))
+    t.terminate()
+    await wait_exited(t)
+
+
 def test_terminal_missing_executable():
     with pytest.raises(FileNotFoundError):
         editor.EditorTerminal(["mitmproxy-no-such-editor"], main_loop=None)

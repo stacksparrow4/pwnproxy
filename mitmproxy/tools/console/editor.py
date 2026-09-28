@@ -14,6 +14,8 @@ flow list keeps updating in the background.
   by path); each request gets a future that resolves once *its* editor exits.
 * ``ctrl ]`` (see :data:`TOGGLE_KEY`) hides the editor without closing it, so
   the rest of the UI can be used; pressing it again brings the editor back.
+* Mouse events are forwarded to the editor when it enables xterm mouse
+  reporting (e.g. nvim's ``set mouse=a``), which urwid's emulator lacks.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import shutil
 import signal
 import termios
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -96,6 +99,90 @@ def translate_key(key: str, decckm: bool = False) -> str | None:
     return None
 
 
+#: DEC private modes selecting which mouse events are reported (xterm).
+MOUSE_X10 = 9  # presses only, no modifiers
+MOUSE_NORMAL = 1000  # presses and releases
+MOUSE_BUTTON_EVENT = 1002  # ... and motion while a button is held
+MOUSE_ANY_EVENT = 1003  # ... and any motion
+MOUSE_TRACKING_MODES = frozenset(
+    (MOUSE_X10, MOUSE_NORMAL, MOUSE_BUTTON_EVENT, MOUSE_ANY_EVENT)
+)
+#: DEC private modes selecting how mouse reports are encoded.
+MOUSE_UTF8 = 1005
+MOUSE_SGR = 1006
+MOUSE_URXVT = 1015
+MOUSE_ENCODING_MODES = frozenset((MOUSE_UTF8, MOUSE_SGR, MOUSE_URXVT))
+
+_MOUSE_MODIFIERS = {"shift": 4, "meta": 8, "ctrl": 16}
+
+
+@dataclass
+class MouseModes:
+    """The mouse reporting the editor asked for; 0 means off/default."""
+
+    tracking: int = 0
+    encoding: int = 0
+
+
+def encode_mouse(
+    modes: MouseModes, event: str, button: int, col: int, row: int
+) -> bytes | None:
+    """
+    Translate an urwid mouse event (0-based ``col``/``row`` relative to the
+    terminal) into the report an xterm would send in ``modes``, or ``None``
+    if nothing should be sent.
+
+    For releases, ``button`` must be the released button (urwid reports 0 if
+    it doesn't know); only SGR encoding carries it, though.
+    """
+    if not modes.tracking:
+        return None
+    *prefixes, mouse, action = ["", *event.split(" ")]
+    if mouse != "mouse":
+        return None
+    if 1 <= button <= 3:
+        code = button - 1
+    elif 4 <= button <= 7:  # wheel up/down/left/right
+        code = 64 + button - 4
+    elif button == 0 and action in ("release", "drag"):
+        code = 3  # "no button" / unknown
+    else:
+        return None
+
+    release = False
+    if action == "press":
+        pass
+    elif action == "drag":
+        if modes.tracking < MOUSE_BUTTON_EVENT:
+            return None
+        code += 32
+    elif action == "release":
+        if modes.tracking == MOUSE_X10 or code >= 64:  # wheels don't release
+            return None
+        release = True
+        if modes.encoding != MOUSE_SGR:
+            code = 3
+    else:  # e.g. urwid's synthetic double "click"s
+        return None
+
+    if modes.tracking != MOUSE_X10:
+        for p in prefixes:
+            code |= _MOUSE_MODIFIERS.get(p, 0)
+
+    x, y = col + 1, row + 1
+    if modes.encoding == MOUSE_SGR:
+        return f"{ESC}[<{code};{x};{y}{'m' if release else 'M'}".encode()
+    if modes.encoding == MOUSE_URXVT:
+        return f"{ESC}[{code + 32};{x};{y}M".encode()
+    if modes.encoding == MOUSE_UTF8:
+        if max(x, y) + 32 > 0x7FF:
+            return None
+        return f"{ESC}[M{chr(code + 32)}{chr(x + 32)}{chr(y + 32)}".encode()
+    if max(x, y) + 32 > 0xFF:
+        return None
+    return f"{ESC}[M".encode() + bytes((code + 32, x + 32, y + 32))
+
+
 #: A CSI sequence urwid's ``TermCanvas.parse_csi`` understands: optional ``?``
 #: private marker and ``;``-separated numeric parameters, no intermediates.
 _SUPPORTED_CSI = re.compile(rb"\??[0-9;]*")
@@ -122,6 +209,20 @@ class EditorCanvas(urwid.vterm.TermCanvas):
 
     parsestate: int
     escbuf: bytes
+    widget: EditorTerminal
+
+    def reset(self) -> None:
+        super().reset()
+        self.widget.mouse_modes = MouseModes()
+
+    def set_mode(self, mode, flag: bool, qmark: bool, reset: bool) -> None:
+        # As in xterm, resetting any tracking/encoding mode turns it off.
+        if qmark and mode in MOUSE_TRACKING_MODES:
+            self.widget.mouse_modes.tracking = mode if flag else 0
+        elif qmark and mode in MOUSE_ENCODING_MODES:
+            self.widget.mouse_modes.encoding = mode if flag else 0
+        else:
+            super().set_mode(mode, flag, qmark, reset)
 
     def process_char(self, char: int | bytes) -> None:
         if self.parsestate == _STATE_STRING:
@@ -191,6 +292,8 @@ class EditorTerminal(urwid.Terminal):
         self.escape_sequence = TOGGLE_KEY
         self.executable = executable
         self.returncode: int | None = None
+        self.mouse_modes = MouseModes()
+        self._mouse_button = 0  # button currently held, for SGR releases
 
     def change_focus(self, has_focus) -> None:
         """
@@ -261,6 +364,28 @@ class EditorTerminal(urwid.Terminal):
         with contextlib.suppress(OSError):
             os.write(self.master, data.encode(self.encoding, "ignore"))
         return None
+
+    def mouse_event(self, size, event: str, button: int, col, row, focus) -> bool:
+        if self.terminated or self.master is None:
+            return False
+        if not self.mouse_modes.tracking:
+            # The editor doesn't want the mouse: scroll with the cursor keys
+            # (like xterm's alternateScroll), leave everything else to urwid.
+            if event == "mouse press" and button in (4, 5):
+                self.keypress(size, "up" if button == 4 else "down")
+                return True
+            return False
+        action = event.rsplit(" ", 1)[-1]
+        if action == "press" and 1 <= button <= 3:
+            self._mouse_button = button
+        elif action == "release":
+            button = button or self._mouse_button
+            self._mouse_button = 0
+        data = encode_mouse(self.mouse_modes, event, button, col, row)
+        if data is not None:
+            with contextlib.suppress(OSError):
+                os.write(self.master, data)
+        return True
 
     def terminate(self) -> None:
         if self.terminated:
