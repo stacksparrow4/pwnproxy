@@ -27,6 +27,7 @@ from mitmproxy.addons import readfile
 from mitmproxy.addons import view
 from mitmproxy.tools.console import consoleaddons
 from mitmproxy.tools.console import defaultkeys
+from mitmproxy.tools.console import editor as embedded_editor
 from mitmproxy.tools.console import keymap
 from mitmproxy.tools.console import palettes
 from mitmproxy.tools.console import signals
@@ -62,6 +63,7 @@ class ConsoleMaster(master.Master):
 
         self.window: window.Window | None = None
         self._loop_started = False
+        self.editors = embedded_editor.EditorSessions(self)
 
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
@@ -191,20 +193,35 @@ class ConsoleMaster(master.Master):
         os.unlink(name)
         return data
 
-    def spawn_editor_file(self, path: str) -> None:
+    def spawn_editor_file(self, path: str) -> asyncio.Future | None:
         """Open an existing file in the configured editor.
 
         Uses the same editor resolution as :meth:`spawn_editor`
         (the ``request_edit_command`` config value/``$EDITOR``, falling back to
         a sensible default), rather than editing the file in-memory.
+
+        By default the editor runs *inside* the TUI on a pseudo-terminal (see
+        :mod:`mitmproxy.tools.console.editor`), so the proxy keeps running
+        while it is open. In that case this returns immediately with a future
+        that resolves once the editor has exited. If embedding is unavailable
+        or disabled (``"embedded_editor": false``), the TUI is suspended and
+        the editor is run in the foreground, blocking until it exits; ``None``
+        is returned.
         """
         c = self.get_editor()
         cmd = pwnproxy_config.build_editor_command(c, path)
+        if (
+            self._loop_started
+            and embedded_editor.available()
+            and pwnproxy_config.embedded_editor()
+        ):
+            return self.editors.open(path, cmd)
         with self.uistopped():
             try:
                 subprocess.call(cmd)
             except Exception:
                 signals.status_message.send(message="Can't start editor: %s" % c)
+        return None
 
     def spawn_external_viewer(self, data, contenttype):
         if contenttype:
@@ -299,6 +316,7 @@ class ConsoleMaster(master.Master):
         await super().running()
 
     async def done(self):
+        self.editors.shutdown()
         self._ui_stop()
         await super().done()
 

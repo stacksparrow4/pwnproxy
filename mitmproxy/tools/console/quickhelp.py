@@ -9,6 +9,7 @@ import urwid
 
 from mitmproxy import flow
 from mitmproxy.http import HTTPFlow
+from mitmproxy.tools.console.editor import EditorWindow
 from mitmproxy.tools.console.eventlog import EventLog
 from mitmproxy.tools.console.flowlist import FlowListBox
 from mitmproxy.tools.console.flowview import FlowView
@@ -130,6 +131,14 @@ def make(
             "Add row": "Add a row after cursor",
             "Delete row": "Delete this row",
         }
+    elif widget == EditorWindow:
+        # All other keys go to the editor, so only advertise the one that doesn't.
+        return QuickHelp(
+            "Editor:  ",
+            {"Hide": "Hide/show the embedded editor"},
+            "",
+            {},
+        )
     else:
         pass
 

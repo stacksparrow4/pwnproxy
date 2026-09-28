@@ -569,6 +569,13 @@ class ConsoleAddon:
             )
         self.master.spawn_editor_file(str(path))
 
+    @command.command("console.editor.toggle")
+    def editor_toggle(self) -> None:
+        """
+        Hide the embedded editor (it keeps running), or bring it back.
+        """
+        self.master.editors.toggle()
+
     def _grideditor(self):
         gewidget = self.master.window.current("grideditor")
         if not gewidget:

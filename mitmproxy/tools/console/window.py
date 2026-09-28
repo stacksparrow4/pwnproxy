@@ -6,6 +6,7 @@ import urwid
 from mitmproxy import flow
 from mitmproxy.tools.console import commands
 from mitmproxy.tools.console import common
+from mitmproxy.tools.console import editor
 from mitmproxy.tools.console import eventlog
 from mitmproxy.tools.console import flowlist
 from mitmproxy.tools.console import flowview
@@ -70,6 +71,7 @@ class WindowStack:
             edit_focus_path=grideditor.PathEditor(master),
             edit_focus_request_headers=grideditor.RequestHeaderEditor(master),
             edit_focus_response_headers=grideditor.ResponseHeaderEditor(master),
+            editor=editor.EditorWindow(master),
         )
         self.stack = [base]
         self.overlay = None

@@ -1,11 +1,15 @@
 import asyncio
+import inspect
 import logging
 import os
 import re
 import shutil
 import time
+from collections.abc import Callable
+from collections.abc import Coroutine
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from mitmproxy import command
 from mitmproxy import connection
@@ -525,13 +529,15 @@ class RawSave:
             return content
         return b"\n".join(lines) + b"\n\n" + body
 
-    def _run_intercept(
-        self, path: Path, has_metadata: bool
-    ) -> tuple[str, bytes | None] | None:
+    def _run_intercept(self, path: Path, has_metadata: bool):
         """
         Open ``path`` in an external editor with the special intercept keys injected.
 
-        Returns one of:
+        The result is one of the values below. If the editor runs
+        asynchronously (the console's embedded editor, which returns an
+        awaitable so that the proxy keeps running while it is open), an
+        awaitable resolving to that value is returned instead.
+
           * None - editing was unavailable or failed; do nothing.
           * ("stop", None) - the user requested ``stop_intercepting``; edits are
             discarded and the original file is restored.
@@ -546,7 +552,23 @@ class RawSave:
         try:
             original = path.read_bytes()
             path.write_bytes(self._inject_intercept_keys(original, has_metadata))
-            editor(str(path))
+            pending = editor(str(path))
+        except OSError as e:
+            logger.error(f"Error while editing {path}: {e}")
+            return None
+        if inspect.isawaitable(pending):
+
+            async def finish() -> tuple[str, bytes | None] | None:
+                await pending
+                return self._finish_intercept(path, original, has_metadata)
+
+            return finish()
+        return self._finish_intercept(path, original, has_metadata)
+
+    def _finish_intercept(
+        self, path: Path, original: bytes, has_metadata: bool
+    ) -> tuple[str, bytes | None] | None:
+        try:
             edited = path.read_bytes()
             opts, cleaned = self._extract_intercept_keys(edited, has_metadata)
             if opts["stop_intercepting"]:
@@ -562,11 +584,28 @@ class RawSave:
             logger.error(f"Error while editing {path}: {e}")
             return None
 
-    def _intercept_request(self, f: http.HTTPFlow) -> None:
+    @staticmethod
+    def _then(result, fn: Callable[[Any], None]) -> Coroutine | None:
+        """Call ``fn(result)``, awaiting ``result`` first if it's awaitable."""
+        if inspect.isawaitable(result):
+
+            async def chain() -> None:
+                fn(await result)
+
+            return chain()
+        fn(result)
+        return None
+
+    def _intercept_request(self, f: http.HTTPFlow) -> Coroutine | None:
         path = self.req_path(f)
         if path is None:
-            return
-        result = self._run_intercept(path, has_metadata=True)
+            return None
+        return self._then(
+            self._run_intercept(path, has_metadata=True),
+            lambda result: self._apply_request(f, result),
+        )
+
+    def _apply_request(self, f: http.HTTPFlow, result) -> None:
         if result is None:
             return
         action, cleaned = result
@@ -582,11 +621,16 @@ class RawSave:
             return
         f.request = request
 
-    def _intercept_response(self, f: http.HTTPFlow) -> None:
+    def _intercept_response(self, f: http.HTTPFlow) -> Coroutine | None:
         path = self.resp_path(f)
         if path is None:
-            return
-        result = self._run_intercept(path, has_metadata=False)
+            return None
+        return self._then(
+            self._run_intercept(path, has_metadata=False),
+            lambda result: self._apply_response(f, result),
+        )
+
+    def _apply_response(self, f: http.HTTPFlow, result) -> None:
         if result is None:
             return
         action, cleaned = result
@@ -635,16 +679,22 @@ class RawSave:
         elif self._highest_existing_number() > 0:
             logging.log(ALERT, "History detected. Press L to load history into TUI")
 
-    def request(self, f: http.HTTPFlow) -> None:
+    # Note: these hooks are deliberately *not* ``async def``. When an
+    # interactive intercept runs in the console's embedded editor they return
+    # an awaitable, which the addon manager awaits: only this flow waits for
+    # the editor, while the proxy keeps handling everything else.
+    def request(self, f: http.HTTPFlow) -> Coroutine | None:
         if f.id in self.restored_ids:
-            return
+            return None
         self.save_request(f)
         if self.intercept_request:
-            self._intercept_request(f)
+            return self._intercept_request(f)
+        return None
 
-    def response(self, f: http.HTTPFlow) -> None:
+    def response(self, f: http.HTTPFlow) -> Coroutine | None:
         if f.id in self.restored_ids:
-            return
+            return None
         self.save_response(f)
         if self.intercept_response:
-            self._intercept_response(f)
+            return self._intercept_response(f)
+        return None

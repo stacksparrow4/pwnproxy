@@ -154,6 +154,24 @@ def test_always_load_invalid(monkeypatch, value, caplog):
     assert "always_load" in caplog.text
 
 
+def test_embedded_editor_default(monkeypatch):
+    monkeypatch.setattr(pwnproxy_config, "_config", {})
+    assert pwnproxy_config.embedded_editor() is True
+
+
+def test_embedded_editor_false(monkeypatch):
+    monkeypatch.setattr(pwnproxy_config, "_config", {"embedded_editor": False})
+    assert pwnproxy_config.embedded_editor() is False
+
+
+@pytest.mark.parametrize("value", ["false", 0, None, []])
+def test_embedded_editor_invalid(monkeypatch, value, caplog):
+    monkeypatch.setattr(pwnproxy_config, "_config", {"embedded_editor": value})
+    with caplog.at_level(logging.WARNING):
+        assert pwnproxy_config.embedded_editor() is True
+    assert "embedded_editor" in caplog.text
+
+
 def test_build_editor_command_placeholder():
     assert pwnproxy_config.build_editor_command("nvim {file}", "/tmp/x") == [
         "nvim",

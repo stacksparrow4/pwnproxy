@@ -329,6 +329,15 @@ class StatusBar(urwid.WidgetWrap):
         if self.master.options.save_stream_file:
             r.append("[W:%s]" % self.master.options.save_stream_file)
 
+        editors = self.master.editors
+        if editors.active:
+            r.append("[")
+            r.append(("heading_key", "editor"))
+            r.append(":%s" % editors.active.name)
+            if editors.queue:
+                r.append(" +%d" % len(editors.queue))
+            r.append("]")
+
         return r
 
     def redraw(self) -> None:

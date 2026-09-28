@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from pathlib import Path
 
 from mitmproxy.addons import rawsave
@@ -1020,3 +1021,97 @@ def test_map_symlink_error_logged(tmp_path, monkeypatch, caplog):
         monkeypatch.setattr(rawsave.Path, "mkdir", boom)
         ra.request(f)
     assert "Error while creating map symlink" in caplog.text
+
+
+def _async_editor(new_content, opened=None):
+    """
+    spawn_editor_file replacement mimicking the console's embedded editor:
+    returns immediately with a future that resolves once "the user" is done.
+    """
+
+    def editor(path):
+        fut = asyncio.get_running_loop().create_future()
+
+        def finish():
+            Path(path).write_bytes(new_content)
+            fut.set_result(0)
+
+        if opened is not None:
+            opened.append(finish)
+        else:
+            asyncio.get_running_loop().call_soon(finish)
+        return fut
+
+    return editor
+
+
+async def test_intercept_request_async_editor_does_not_block(tmp_path):
+    # With the embedded editor, the request hook returns an awaitable: only
+    # this flow waits for the editor, everything else keeps running.
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        edited = (
+            b"---\nprotocol: http\n---\n"
+            b"POST /edited HTTP/1.1\nHost: example.com\n\nhello"
+        )
+        opened = []
+        tctx.master.spawn_editor_file = _async_editor(edited, opened)
+        ra.intercept_toggle()
+
+        pending = ra.request(f)
+        assert inspect.isawaitable(pending)
+        task = asyncio.ensure_future(pending)
+        await asyncio.sleep(0.01)
+        assert not task.done()  # waiting for the editor...
+        assert f.request.method == "GET"  # ...and not applied yet
+
+        opened[0]()  # user saves and quits
+        await task
+
+    assert f.request.method == "POST"
+    assert f.request.path == "/edited"
+    assert (history / "000001.req.orig").exists()
+
+
+async def test_intercept_response_async_editor(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow(resp=True)
+        ra.request(f)
+        tctx.master.spawn_editor_file = _async_editor(
+            b"HTTP/1.1 404 Not Found\ncontent-length: 3\n\nbye"
+        )
+        ra.intercept_response_toggle()
+        await ra.response(f)
+    assert f.response.status_code == 404
+
+
+async def test_intercept_async_editor_stop(tmp_path, caplog):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        tctx.master.spawn_editor_file = _async_editor(
+            b"---\nstop_intercepting: true\n---\nGET /x HTTP/1.1\n\n"
+        )
+        ra.intercept_toggle()
+        await ra.request(f)
+    assert ra.intercept_request is False
+    assert f.request.path == "/path"
+
+
+async def test_intercept_async_editor_via_addonmanager(tmp_path):
+    # The addon manager awaits the returned awaitable of a sync hook.
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        tctx.master.spawn_editor_file = _async_editor(
+            b"---\nprotocol: http\n---\nPUT /hook HTTP/1.1\nHost: example.com\n\n"
+        )
+        ra.intercept_toggle()
+        await tctx.cycle(ra, f)
+    assert f.request.method == "PUT"

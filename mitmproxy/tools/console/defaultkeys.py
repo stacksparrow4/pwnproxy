@@ -181,6 +181,12 @@ def map(km: Keymap) -> None:
     )
 
     km.add(
+        "ctrl ]",
+        "console.editor.toggle",
+        ["global"],
+        "Hide/show the embedded editor",
+    )
+    km.add(
         "e",
         "console.edit.focus",
         ["flowlist", "flowview"],

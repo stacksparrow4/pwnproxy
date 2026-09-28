@@ -23,6 +23,7 @@ Contexts = {
     "commands",
     "commonkey",
     "dataviewer",
+    "editor",
     "eventlog",
     "flowlist",
     "flowview",

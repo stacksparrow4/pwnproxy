@@ -15,6 +15,10 @@ Currently supported keys:
     an external editor (the intercept editor and the ``e`` hotkey). It may
     contain a ``{file}`` placeholder that is replaced with the path to edit;
     if the placeholder is absent, the path is appended as the final argument.
+  * ``embedded_editor`` - whether the ``e`` hotkey/flow click and interactive
+    intercept run the editor *inside* the TUI (default ``true``), so the proxy
+    keeps running while it is open. Set to ``false`` to suspend the TUI and run
+    the editor in the foreground instead (this blocks the proxy).
 """
 
 from __future__ import annotations
@@ -144,6 +148,18 @@ def always_load() -> bool:
         f"got {type(value).__name__}."
     )
     return False
+
+
+def embedded_editor() -> bool:
+    """Whether to embed the external editor in the TUI (default ``True``)."""
+    value = config().get("embedded_editor", True)
+    if isinstance(value, bool):
+        return value
+    logger.warning(
+        "Ignoring pwnproxy 'embedded_editor': expected a boolean, "
+        f"got {type(value).__name__}."
+    )
+    return True
 
 
 def build_editor_command(command: str, path: str) -> list[str]:
