@@ -559,8 +559,9 @@ class RawSave:
           * None - editing was unavailable or failed; do nothing.
           * ("drop", None) - the user requested ``drop``; edits are discarded,
             the original file is restored, and the flow should be killed.
-          * ("stop", None) - the user requested ``stop_intercepting``; edits are
-            discarded and the original file is restored.
+          * ("stop", cleaned) - the user requested ``stop_intercepting``; any
+            edits are still applied (written to ``path``, original to
+            ``<path>.orig`` if it changed) and returned, exactly like ``apply``.
           * ("apply", cleaned) - the cleaned (keys-stripped) edited bytes, which
             have been written to ``path`` (and the original to ``<path>.orig``
             if it changed).
@@ -594,15 +595,14 @@ class RawSave:
             if opts["drop"]:
                 path.write_bytes(original)  # discard edits
                 return "drop", None
-            if opts["stop_intercepting"]:
-                path.write_bytes(original)  # discard edits
-                return "stop", None
             if opts["update_content_length"]:
                 cleaned = self._fix_content_length(cleaned)
             path.write_bytes(cleaned)
             if cleaned != original:
                 path.with_name(path.name + ".orig").write_bytes(original)
-            return "apply", cleaned
+            # stop_intercepting still applies any edits made in the same
+            # session; it only additionally disables interception.
+            return ("stop" if opts["stop_intercepting"] else "apply"), cleaned
         except OSError as e:
             logger.error(f"Error while editing {path}: {e}")
             return None
@@ -655,18 +655,17 @@ class RawSave:
         if action == "drop":
             self._drop_flow(f)
             return
-        if action == "stop":
-            self.intercept_request = False
-            logging.log(ALERT, "Request intercept: off")
-            self._release_intercept_queue()
-            return
         assert cleaned is not None
         try:
             request, _ = self._parse_request_file(cleaned)
         except (ValueError, IndexError) as e:
             logger.error(f"Could not parse edited request: {e}")
-            return
-        f.request = request
+        else:
+            f.request = request
+        if action == "stop":
+            self.intercept_request = False
+            logging.log(ALERT, "Request intercept: off")
+            self._release_intercept_queue()
 
     def _intercept_response(self, f: http.HTTPFlow) -> Coroutine | None:
         path = self.resp_path(f)
@@ -684,17 +683,15 @@ class RawSave:
         if action == "drop":
             self._drop_flow(f)
             return
-        if action == "stop":
-            self.intercept_response = False
-            logging.log(ALERT, "Response intercept: off")
-            self._release_intercept_queue()
-            return
         assert cleaned is not None
         try:
             f.response = self._parse_response_file(cleaned)
         except (ValueError, IndexError) as e:
             logger.error(f"Could not parse edited response: {e}")
-            return
+        if action == "stop":
+            self.intercept_response = False
+            logging.log(ALERT, "Response intercept: off")
+            self._release_intercept_queue()
 
     async def restore(self) -> None:
         # Yield control back to the event loop first so the console can repaint

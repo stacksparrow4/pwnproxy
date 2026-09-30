@@ -873,7 +873,7 @@ def test_intercept_response_gets_metadata_section(tmp_path):
     assert b"stop_intercepting" not in saved
 
 
-def test_stop_intercepting_discards_edits_and_disables(tmp_path, caplog):
+def test_stop_intercepting_applies_edits_and_disables(tmp_path, caplog):
     import logging as _logging
     history = tmp_path / "history"
     ra = rawsave.RawSave(directory=str(history))
@@ -884,21 +884,21 @@ def test_stop_intercepting_discards_edits_and_disables(tmp_path, caplog):
 
         def transform(data):
             data = data.replace(b"stop_intercepting: false", b"stop_intercepting: true")
-            return data.replace(b"GET ", b"DELETE ")  # edit that must be ignored
+            return data.replace(b"GET ", b"DELETE ")  # edit that must be respected
 
         tctx.master.spawn_editor_file = _capturing_editor([], transform)
         ra.intercept_toggle()
         assert ra.intercept_request is True
         ra.request(f)
 
-    # edits ignored: the flow forwards unchanged
-    assert f.request.method == "GET"
+    # edits respected: the flow forwards the modified request
+    assert f.request.method == "DELETE"
     # intercept mode turned off
     assert ra.intercept_request is False
     assert "Request intercept: off" in caplog.text
-    # the original file is left intact, with no .orig
-    assert not (history / "000001.req.orig").exists()
-    assert b"DELETE" not in (history / "000001.req").read_bytes()
+    # the edited file is written, with the original kept as .orig
+    assert (history / "000001.req.orig").exists()
+    assert b"DELETE" in (history / "000001.req").read_bytes()
 
 
 def test_drop_kills_request_and_discards_edits(tmp_path, caplog):
@@ -1019,7 +1019,7 @@ def test_stop_intercepting_response_disables(tmp_path, caplog):
 
         def transform(data):
             data = data.replace(b"stop_intercepting: false", b"stop_intercepting: true")
-            return data.replace(b"200", b"500")  # edit that must be ignored
+            return data.replace(b"200", b"500")  # edit that must be respected
 
         tctx.master.spawn_editor_file = _capturing_editor([], transform)
         ra.request(f)
@@ -1027,10 +1027,11 @@ def test_stop_intercepting_response_disables(tmp_path, caplog):
         assert ra.intercept_response is True
         ra.response(f)
 
-    assert f.response.status_code == original_status
+    assert original_status == 200
+    assert f.response.status_code == 500
     assert ra.intercept_response is False
     assert "Response intercept: off" in caplog.text
-    assert not (history / "000001.req.resp.orig").exists()
+    assert (history / "000001.req.resp.orig").exists()
 
 
 import os as _os
@@ -1215,7 +1216,7 @@ async def test_intercept_async_editor_stop(tmp_path, caplog):
         ra.intercept_toggle()
         await ra.request(f)
     assert ra.intercept_request is False
-    assert f.request.path == "/path"
+    assert f.request.path == "/x"  # edits are respected even when stopping
 
 
 async def test_stop_intercepting_flushes_editor_queue(tmp_path):
