@@ -15,6 +15,7 @@ from mitmproxy import command
 from mitmproxy import connection
 from mitmproxy import ctx
 from mitmproxy import flow
+from mitmproxy import flowfilter
 from mitmproxy import http
 from mitmproxy import pwnproxy_config
 from mitmproxy.log import ALERT
@@ -477,6 +478,22 @@ class RawSave:
         state = "on" if self.intercept_response else "off"
         logging.log(ALERT, f"Response intercept: {state}")
 
+    def _matches_filter(self, f: http.HTTPFlow) -> bool:
+        """Whether ``f`` should be intercepted given the current view filter.
+
+        Intercept reuses the view filter (set with ``f`` in the flow list):
+        only flows shown in the view are intercepted, everything else passes
+        through. With no view filter set, every flow matches.
+        """
+        expr = getattr(ctx.options, "view_filter", None)
+        if not expr:
+            return True
+        try:
+            filt = flowfilter.parse(expr)
+        except ValueError:
+            return True
+        return bool(filt(f))
+
     # Special intercept-only keys and their defaults. These are injected into
     # the ``---`` block of the file opened in the editor, but are never written to
     # the on-disk .req/.resp/.orig files.
@@ -721,7 +738,7 @@ class RawSave:
         if f.id in self.restored_ids:
             return None
         self.save_request(f)
-        if self.intercept_request:
+        if self.intercept_request and self._matches_filter(f):
             return self._intercept_request(f)
         return None
 
@@ -729,6 +746,6 @@ class RawSave:
         if f.id in self.restored_ids:
             return None
         self.save_response(f)
-        if self.intercept_response:
+        if self.intercept_response and self._matches_filter(f):
             return self._intercept_response(f)
         return None

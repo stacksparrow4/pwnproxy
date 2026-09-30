@@ -4,6 +4,7 @@ from pathlib import Path
 
 from mitmproxy import flow
 from mitmproxy.addons import rawsave
+from mitmproxy.addons import view
 from mitmproxy.log import ALERT
 from mitmproxy.proxy import mode_specs
 from mitmproxy.test import taddons
@@ -569,6 +570,53 @@ def test_intercept_toggle(caplog):
         assert "Response intercept: on" in caplog.text
         ra.intercept_response_toggle()
         assert ra.intercept_response is False
+
+
+def test_intercept_uses_view_filter(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra, view.View()) as tctx:
+        edited = (
+            b"---\nprotocol: http\n---\n"
+            b"POST /edited HTTP/1.1\nHost: example.com\n\nhello"
+        )
+        tctx.master.spawn_editor_file = _fake_editor(edited)
+
+        ra.intercept_toggle()
+        tctx.options.view_filter = "~u /match"
+
+        # Non-matching flow passes through untouched.
+        f1 = tflow.tflow()
+        f1.request.path = "/other"
+        ra.request(f1)
+        assert f1.request.method == "GET"
+        assert f1.request.path == "/other"
+
+        # Matching flow is intercepted and edited.
+        f2 = tflow.tflow()
+        f2.request.path = "/match"
+        ra.request(f2)
+        assert f2.request.method == "POST"
+        assert f2.request.path == "/edited"
+
+
+def test_intercept_no_view_filter_intercepts_all(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        edited = (
+            b"---\nprotocol: http\n---\n"
+            b"POST /edited HTTP/1.1\nHost: example.com\n\nhello"
+        )
+        tctx.master.spawn_editor_file = _fake_editor(edited)
+
+        ra.intercept_toggle()
+        # No view filter set -> every flow is intercepted.
+        f = tflow.tflow()
+        f.request.path = "/anything"
+        ra.request(f)
+        assert f.request.method == "POST"
+        assert f.request.path == "/edited"
 
 
 def _fake_editor(new_content):
