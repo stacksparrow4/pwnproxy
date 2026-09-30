@@ -2,6 +2,7 @@ import asyncio
 import inspect
 from pathlib import Path
 
+from mitmproxy import flow
 from mitmproxy.addons import rawsave
 from mitmproxy.log import ALERT
 from mitmproxy.proxy import mode_specs
@@ -850,6 +851,72 @@ def test_stop_intercepting_discards_edits_and_disables(tmp_path, caplog):
     # the original file is left intact, with no .orig
     assert not (history / "000001.req.orig").exists()
     assert b"DELETE" not in (history / "000001.req").read_bytes()
+
+
+def test_drop_kills_request_and_discards_edits(tmp_path, caplog):
+    import logging as _logging
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx, caplog.at_level(_logging.INFO):
+        f = tflow.tflow()
+        f.request.method = "GET"
+        f.request.headers["Host"] = "example.com"
+
+        def transform(data):
+            data = data.replace(b"drop: false", b"drop: true")
+            return data.replace(b"GET ", b"DELETE ")  # edit that must be ignored
+
+        tctx.master.spawn_editor_file = _capturing_editor([], transform)
+        ra.intercept_toggle()
+        ra.request(f)
+
+    # the flow is dropped (killed) rather than forwarded
+    assert f.killable is False
+    assert f.error and f.error.msg == flow.Error.KILLED_MESSAGE
+    assert "Flow dropped" in caplog.text
+    # intercept mode stays on
+    assert ra.intercept_request is True
+    # edits ignored; original file left intact with no .orig
+    assert not (history / "000001.req.orig").exists()
+    assert b"DELETE" not in (history / "000001.req").read_bytes()
+
+
+def test_drop_kills_response(tmp_path, caplog):
+    import logging as _logging
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx, caplog.at_level(_logging.INFO):
+        f = tflow.tflow(resp=True)
+
+        def transform(data):
+            return data.replace(b"drop: false", b"drop: true")
+
+        tctx.master.spawn_editor_file = _capturing_editor([], transform)
+        ra.request(f)
+        ra.intercept_response_toggle()
+        ra.response(f)
+
+    assert f.killable is False
+    assert f.error and f.error.msg == flow.Error.KILLED_MESSAGE
+    assert "Flow dropped" in caplog.text
+    assert ra.intercept_response is True
+
+
+def test_drop_not_killable_warns(tmp_path, caplog):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        f = tflow.tflow()
+        f.live = False  # not killable
+
+        def transform(data):
+            return data.replace(b"drop: false", b"drop: true")
+
+        tctx.master.spawn_editor_file = _capturing_editor([], transform)
+        ra.intercept_toggle()
+        ra.request(f)
+
+    assert "cannot drop" in caplog.text
 
 
 def test_update_content_length_true_corrects(tmp_path):

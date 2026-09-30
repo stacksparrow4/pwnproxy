@@ -481,6 +481,7 @@ class RawSave:
     # the ``---`` block of the file opened in the editor, but are never written to
     # the on-disk .req/.resp/.orig files.
     _INTERCEPT_KEYS: dict[str, bool] = {
+        "drop": False,
         "stop_intercepting": False,
         "update_content_length": True,
     }
@@ -539,6 +540,8 @@ class RawSave:
         awaitable resolving to that value is returned instead.
 
           * None - editing was unavailable or failed; do nothing.
+          * ("drop", None) - the user requested ``drop``; edits are discarded,
+            the original file is restored, and the flow should be killed.
           * ("stop", None) - the user requested ``stop_intercepting``; edits are
             discarded and the original file is restored.
           * ("apply", cleaned) - the cleaned (keys-stripped) edited bytes, which
@@ -571,6 +574,9 @@ class RawSave:
         try:
             edited = path.read_bytes()
             opts, cleaned = self._extract_intercept_keys(edited, has_metadata)
+            if opts["drop"]:
+                path.write_bytes(original)  # discard edits
+                return "drop", None
             if opts["stop_intercepting"]:
                 path.write_bytes(original)  # discard edits
                 return "stop", None
@@ -596,6 +602,14 @@ class RawSave:
         fn(result)
         return None
 
+    def _drop_flow(self, f: http.HTTPFlow) -> None:
+        """Kill an intercepted flow so it is not forwarded to its destination."""
+        if f.killable:
+            f.kill()
+            logging.log(ALERT, "Flow dropped")
+        else:
+            logger.warning("Flow is no longer killable; cannot drop.")
+
     def _intercept_request(self, f: http.HTTPFlow) -> Coroutine | None:
         path = self.req_path(f)
         if path is None:
@@ -609,6 +623,9 @@ class RawSave:
         if result is None:
             return
         action, cleaned = result
+        if action == "drop":
+            self._drop_flow(f)
+            return
         if action == "stop":
             self.intercept_request = False
             logging.log(ALERT, "Request intercept: off")
@@ -634,6 +651,9 @@ class RawSave:
         if result is None:
             return
         action, cleaned = result
+        if action == "drop":
+            self._drop_flow(f)
+            return
         if action == "stop":
             self.intercept_response = False
             logging.log(ALERT, "Response intercept: off")

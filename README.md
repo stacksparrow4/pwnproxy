@@ -43,9 +43,10 @@ Additional behavior:
   `rawsave.intercept.response.toggle` open each request/response in your
   configured editor (see `request_edit_command` below) for
   editing before it is forwarded. Special intercept-only keys
-  (`stop_intercepting`, `update_content_length`) can be set in the `---` block
-  while editing; they are never written to disk. `Content-Length` is
-  recomputed automatically unless disabled.
+  (`drop`, `stop_intercepting`, `update_content_length`) can be set in the
+  `---` block while editing; they are never written to disk. Setting `drop`
+  to true kills the flow so it is not forwarded to its destination (edits are
+  discarded). `Content-Length` is recomputed automatically unless disabled.
 - Helper commands `req_path` / `resp_path` expose the on-disk paths for other
   addons (used by `tools` and the editor integration).
 
