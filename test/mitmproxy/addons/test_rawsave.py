@@ -1170,6 +1170,40 @@ async def test_intercept_async_editor_stop(tmp_path, caplog):
     assert f.request.path == "/path"
 
 
+async def test_stop_intercepting_flushes_editor_queue(tmp_path):
+    # Stopping intercept should release flows already waiting in the editor
+    # queue rather than opening an editor for each of them.
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        flushed = []
+        tctx.master.flush_editor_queue = lambda: flushed.append(True)
+        f = tflow.tflow()
+        tctx.master.spawn_editor_file = _async_editor(
+            b"---\nstop_intercepting: true\n---\nGET /x HTTP/1.1\n\n"
+        )
+        ra.intercept_toggle()
+        await ra.request(f)
+    assert flushed == [True]
+
+
+async def test_stop_intercepting_response_flushes_editor_queue(tmp_path):
+    history = tmp_path / "history"
+    ra = rawsave.RawSave(directory=str(history))
+    with taddons.context(ra) as tctx:
+        flushed = []
+        tctx.master.flush_editor_queue = lambda: flushed.append(True)
+        f = tflow.tflow(resp=True)
+        ra.request(f)
+        tctx.master.spawn_editor_file = _async_editor(
+            b"---\nstop_intercepting: true\n---\nHTTP/1.1 200 OK\n\n"
+        )
+        ra.intercept_response_toggle()
+        await ra.response(f)
+    assert ra.intercept_response is False
+    assert flushed == [True]
+
+
 async def test_intercept_async_editor_via_addonmanager(tmp_path):
     # The addon manager awaits the returned awaitable of a sync hook.
     history = tmp_path / "history"

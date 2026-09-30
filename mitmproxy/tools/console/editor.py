@@ -574,6 +574,24 @@ class EditorSessions:
         else:
             signals.status_message.send(message="No editor running.", expire=1)
 
+    def flush(self) -> None:
+        """Close every editor (active and queued) and resolve its future.
+
+        Unlike :meth:`shutdown`, the manager stays usable afterwards: this is
+        used to release all pending intercepted flows at once (e.g. when the
+        user stops intercepting), letting them proceed with whatever is
+        currently on disk rather than opening an editor for each.
+        """
+        pending = ([self.active] if self.active else []) + list(self.queue)
+        self.active = None
+        self.queue.clear()
+        self._remove_windows()
+        for s in pending:
+            if s.terminal is not None:
+                s.terminal.terminate()
+            if not s.future.done():
+                s.future.set_result(None)
+
     def shutdown(self) -> None:
         """Close all editors and resolve all pending futures."""
         pending = ([self.active] if self.active else []) + list(self.queue)

@@ -475,6 +475,31 @@ async def test_shutdown(monkeypatch, console, tmp_path):
     await eventually(lambda: term.returncode is not None)
 
 
+async def test_flush(monkeypatch, console, tmp_path):
+    # flush() releases the active editor and every queued one, but leaves the
+    # session manager usable afterwards (unlike shutdown()).
+    use_editor(monkeypatch, console, "read x")
+    fa = console.spawn_editor_file(str(tmp_path / "a.req"))
+    fb = console.spawn_editor_file(str(tmp_path / "b.req"))
+    await render_until_spawned(console)
+    term = console.editors.active.terminal
+
+    console.flush_editor_queue()
+    assert fa.result() is None
+    assert fb.result() is None
+    assert console.editors.active is None
+    assert not console.editors.queue
+    assert term.terminated
+    assert top(console) != "editor"
+    await eventually(lambda: term.returncode is not None)
+
+    # still usable: a new editor can be opened.
+    fc = console.spawn_editor_file(str(tmp_path / "c.req"))
+    await render_until_spawned(console)
+    console.type("<enter>")
+    assert await asyncio.wait_for(fc, 5) == 0
+
+
 async def test_no_window(console, tmp_path):
     w = console.window
     console.window = None

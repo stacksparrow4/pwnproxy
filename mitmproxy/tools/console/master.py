@@ -223,6 +223,15 @@ class ConsoleMaster(master.Master):
                 signals.status_message.send(message="Can't start editor: %s" % c)
         return None
 
+    def flush_editor_queue(self) -> None:
+        """Close all embedded editors, letting their queued flows proceed.
+
+        Each pending editor's future resolves as if the editor had exited
+        without further edits, so any flows waiting on an interactive
+        intercept are released with whatever content is currently saved.
+        """
+        self.editors.flush()
+
     def spawn_external_viewer(self, data, contenttype):
         if contenttype:
             contenttype = contenttype.split(";")[0]

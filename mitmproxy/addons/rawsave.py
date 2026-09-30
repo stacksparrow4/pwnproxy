@@ -602,6 +602,18 @@ class RawSave:
         fn(result)
         return None
 
+    def _release_intercept_queue(self) -> None:
+        """Let flows already queued for interactive intercept proceed.
+
+        When the user stops intercepting, any requests/responses still waiting
+        for an editor should be forwarded unchanged rather than each opening an
+        editor in turn. Closing every pending editor resolves their futures, so
+        the flows continue with whatever content is currently saved.
+        """
+        flush = getattr(ctx.master, "flush_editor_queue", None)
+        if flush is not None:
+            flush()
+
     def _drop_flow(self, f: http.HTTPFlow) -> None:
         """Kill an intercepted flow so it is not forwarded to its destination."""
         if f.killable:
@@ -629,6 +641,7 @@ class RawSave:
         if action == "stop":
             self.intercept_request = False
             logging.log(ALERT, "Request intercept: off")
+            self._release_intercept_queue()
             return
         assert cleaned is not None
         try:
@@ -657,6 +670,7 @@ class RawSave:
         if action == "stop":
             self.intercept_response = False
             logging.log(ALERT, "Response intercept: off")
+            self._release_intercept_queue()
             return
         assert cleaned is not None
         try:
