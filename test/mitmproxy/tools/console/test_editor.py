@@ -512,3 +512,41 @@ async def test_window_without_session(console):
     console.window.render((80, 24), True)
     console.window.pop()
     assert top(console) == "flowlist"
+
+
+def test_screen_decodes_ctrl_h():
+    from mitmproxy.tools.console import window
+
+    s = window.Screen()
+    keys, raw = s.parse_input(None, None, [8, 127, 12, 104])
+    assert keys == ["ctrl h", "backspace", "ctrl l", "h"]
+    # urwid's global table is left untouched.
+    assert urwid.display.escape._keyconv[8] == "backspace"
+
+
+async def test_ctrl_h_reaches_editor(monkeypatch, console, tmp_path):
+    use_editor(monkeypatch, console, "read x")
+    fut = console.spawn_editor_file(str(tmp_path / "x.req"))
+    await render_until_spawned(console)
+    term = console.editors.active.terminal
+    keys = []
+    monkeypatch.setattr(term, "keypress", lambda size, k: keys.append(k))
+    console.window.keypress((80, 24), "ctrl h")
+    assert keys == ["ctrl h"]
+    assert editor.translate_key("ctrl h") == "\x08"
+
+    # With the command prompt focused, ctrl h is backspace again.
+    console.window.focus_position = "footer"
+    console.window.keypress((80, 24), "ctrl h")
+    assert keys == ["ctrl h"]
+    console.window.focus_position = "body"
+    monkeypatch.undo()
+    console.editors.shutdown()
+    await asyncio.wait_for(fut, 5)
+
+
+async def test_ctrl_h_is_backspace_elsewhere(console):
+    ab = console.window.statusbar.ab
+    ab.sig_prompt("Test", "xy", lambda x: None)
+    console.window.keypress((80, 24), "ctrl h")
+    assert ab.top._w.get_edit_text() == "x"

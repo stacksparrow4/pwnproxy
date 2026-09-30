@@ -301,7 +301,17 @@ class Window(urwid.Frame):
                 return False
             return True
 
+    def _editor_has_focus(self) -> bool:
+        return self.focus_position == "body" and isinstance(
+            self.focus_stack().top_widget(), editor.EditorWindow
+        )
+
     def keypress(self, size, k):
+        if k == "ctrl h" and not self._editor_has_focus():
+            # Screen decodes ^H as "ctrl h" so that the embedded editor can
+            # tell it apart from backspace (^?). Everywhere else, keep urwid's
+            # default of treating it as backspace.
+            k = "backspace"
         k = super().keypress(size, k)
         if k:
             return self.master.keymap.handle(self.focus_stack().top_widget().keyctx, k)
@@ -311,6 +321,19 @@ class Screen(urwid.raw_display.Screen):
     def __init__(self) -> None:
         super().__init__()
         self.logger = logging.getLogger("urwid")
+
+    def parse_input(self, *args, **kwargs):
+        # urwid decodes both ^H (0x08) and ^? (0x7f) as "backspace", so the
+        # embedded editor could never receive ctrl-h (e.g. for <C-h> mappings
+        # in vim). Decode ^H as "ctrl h" instead; Window.keypress maps it back
+        # to "backspace" for everything but the editor.
+        keyconv = urwid.display.escape._keyconv
+        saved = keyconv.pop(8, None)
+        try:
+            return super().parse_input(*args, **kwargs)
+        finally:
+            if saved is not None:
+                keyconv[8] = saved
 
     def write(self, data):
         if common.IS_WINDOWS_OR_WSL:
