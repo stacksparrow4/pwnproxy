@@ -307,11 +307,16 @@ class Window(urwid.Frame):
         )
 
     def keypress(self, size, k):
-        if k == "ctrl h" and not self._editor_has_focus():
-            # Screen decodes ^H as "ctrl h" so that the embedded editor can
-            # tell it apart from backspace (^?). Everywhere else, keep urwid's
-            # default of treating it as backspace.
-            k = "backspace"
+        if not self._editor_has_focus():
+            if k == "ctrl h":
+                # Screen decodes ^H as "ctrl h" so that the embedded editor can
+                # tell it apart from backspace (^?). Everywhere else, keep
+                # urwid's default of treating it as backspace.
+                k = "backspace"
+            elif k == "ctrl j":
+                # Likewise, Screen decodes ^J as "ctrl j" so the editor can
+                # tell it apart from enter (^M). Elsewhere, treat it as enter.
+                k = "enter"
         k = super().keypress(size, k)
         if k:
             return self.master.keymap.handle(self.focus_stack().top_widget().keyctx, k)
@@ -327,13 +332,19 @@ class Screen(urwid.raw_display.Screen):
         # embedded editor could never receive ctrl-h (e.g. for <C-h> mappings
         # in vim). Decode ^H as "ctrl h" instead; Window.keypress maps it back
         # to "backspace" for everything but the editor.
+        #
+        # Similarly, urwid decodes both ^J (0x0a) and ^M (0x0d) as "enter", so
+        # the editor could never receive ctrl-j (e.g. for <C-j> mappings in
+        # vim). Decode ^J as "ctrl j" instead; Window.keypress maps it back to
+        # "enter" for everything but the editor.
         keyconv = urwid.display.escape._keyconv
-        saved = keyconv.pop(8, None)
+        saved = {code: keyconv.pop(code, None) for code in (8, 10)}
         try:
             return super().parse_input(*args, **kwargs)
         finally:
-            if saved is not None:
-                keyconv[8] = saved
+            for code, value in saved.items():
+                if value is not None:
+                    keyconv[code] = value
 
     def write(self, data):
         if common.IS_WINDOWS_OR_WSL:

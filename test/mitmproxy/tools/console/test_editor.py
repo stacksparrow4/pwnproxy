@@ -549,6 +549,16 @@ def test_screen_decodes_ctrl_h():
     assert urwid.display.escape._keyconv[8] == "backspace"
 
 
+def test_screen_decodes_ctrl_j():
+    from mitmproxy.tools.console import window
+
+    s = window.Screen()
+    keys, raw = s.parse_input(None, None, [10, 13, 106])
+    assert keys == ["ctrl j", "enter", "j"]
+    # urwid's global table is left untouched.
+    assert urwid.display.escape._keyconv[10] == "enter"
+
+
 async def test_ctrl_h_reaches_editor(monkeypatch, console, tmp_path):
     use_editor(monkeypatch, console, "read x")
     fut = console.spawn_editor_file(str(tmp_path / "x.req"))
@@ -575,3 +585,24 @@ async def test_ctrl_h_is_backspace_elsewhere(console):
     ab.sig_prompt("Test", "xy", lambda x: None)
     console.window.keypress((80, 24), "ctrl h")
     assert ab.top._w.get_edit_text() == "x"
+
+
+async def test_ctrl_j_reaches_editor(monkeypatch, console, tmp_path):
+    use_editor(monkeypatch, console, "read x")
+    fut = console.spawn_editor_file(str(tmp_path / "x.req"))
+    await render_until_spawned(console)
+    term = console.editors.active.terminal
+    keys = []
+    monkeypatch.setattr(term, "keypress", lambda size, k: keys.append(k))
+    console.window.keypress((80, 24), "ctrl j")
+    assert keys == ["ctrl j"]
+    assert editor.translate_key("ctrl j") == "\n"
+
+    # With the command prompt focused, ctrl j is enter again.
+    console.window.focus_position = "footer"
+    console.window.keypress((80, 24), "ctrl j")
+    assert keys == ["ctrl j"]
+    console.window.focus_position = "body"
+    monkeypatch.undo()
+    console.editors.shutdown()
+    await asyncio.wait_for(fut, 5)
